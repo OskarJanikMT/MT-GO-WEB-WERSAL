@@ -11,7 +11,8 @@ import * as XLSX from 'xlsx';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_PRODUCTS_DIR = path.join(__dirname, 'Produkty');
-const recipesFilePath = path.join(__dirname, 'receptury.json');
+const recipesWorkbookPath = path.join(__dirname, 'receptury.xlsx');
+const legacyRecipesFilePath = path.join(__dirname, 'receptury.json');
 const configFilePath = path.join(__dirname, 'config.json');
 const execFileAsync = promisify(execFile);
 const DEFAULT_ROW_LIMIT = 500;
@@ -30,6 +31,30 @@ const DEFAULT_ACTIVE_EXCEL_COLUMNS = [
   'Wybijak',
   'Klasa',
   'Stanowisko',
+];
+const RECIPE_SHEET_NAME = 'Receptury';
+const RECIPE_ROWS_SHEET_NAME = 'Wiersze';
+const RECIPE_EXPORT_COLUMNS = ['idRap', 'nazwaReceptury', 'CzasOdloz', 'createdAt', 'lastUsedAt', 'Usr'];
+const RECIPE_ROW_EXPORT_COLUMNS = [
+  'nazwaReceptury',
+  'nazwaProduktu',
+  'TekstDoDruku',
+  'nazwaSkladowej',
+  'dlugosc',
+  'grubosc',
+  'szerokosc',
+  'material',
+  'Klasa',
+  'klasa',
+  'idReceptury',
+  'idSkladowej',
+  'wybijak',
+  'grupa',
+  'priorytet',
+  'ilosc',
+  'Stanowisko',
+  'iloscWykonana',
+  'Informacje',
 ];
 const defaultAppConfig = {
   productsDirectory: DEFAULT_PRODUCTS_DIR,
@@ -226,6 +251,66 @@ function normalizeRecipeEntry(entry) {
   };
 }
 
+function hasRecipeRowContent(row) {
+  if (!row || typeof row !== 'object') return false;
+  return Object.entries(row).some(([key, value]) => key !== 'nazwaReceptury' && String(value ?? '').trim() !== '');
+}
+
+function buildRecipeWorkbook(recipes) {
+  const normalizedRecipes = Array.isArray(recipes) ? recipes.map((entry) => normalizeRecipeEntry(entry)) : [];
+  const summaryRows = normalizedRecipes.map((recipe) =>
+    Object.fromEntries(RECIPE_EXPORT_COLUMNS.map((column) => [column, recipe?.[column] ?? ''])),
+  );
+  const detailRows = normalizedRecipes.flatMap((recipe) =>
+    (Array.isArray(recipe?.rows) ? recipe.rows : []).map((row) =>
+      Object.fromEntries(RECIPE_ROW_EXPORT_COLUMNS.map((column) => [column, column === 'nazwaReceptury' ? recipe.nazwaReceptury : (row?.[column] ?? '')])),
+    ),
+  );
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), RECIPE_SHEET_NAME);
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailRows), RECIPE_ROWS_SHEET_NAME);
+  return workbook;
+}
+
+function parseRecipeWorkbook(workbook) {
+  const recipeSheet = workbook?.Sheets?.[RECIPE_SHEET_NAME];
+  const recipeRowsSheet = workbook?.Sheets?.[RECIPE_ROWS_SHEET_NAME];
+  const recipeEntries = recipeSheet ? XLSX.utils.sheet_to_json(recipeSheet, { defval: '' }) : [];
+  const rowEntries = recipeRowsSheet ? XLSX.utils.sheet_to_json(recipeRowsSheet, { defval: '' }) : [];
+  const rowsByRecipeName = new Map();
+
+  rowEntries.forEach((entry) => {
+    const recipeName = String(entry?.nazwaReceptury || '').trim();
+    if (!recipeName) return;
+    const { nazwaReceptury: _recipeName, ...row } = entry;
+    if (!hasRecipeRowContent(row)) return;
+    if (!rowsByRecipeName.has(recipeName)) {
+      rowsByRecipeName.set(recipeName, []);
+    }
+    rowsByRecipeName.get(recipeName).push(row);
+  });
+
+  const normalizedRecipes = recipeEntries
+    .map((entry) => {
+      const recipeName = String(entry?.nazwaReceptury || '').trim();
+      if (!recipeName) return null;
+      return normalizeRecipeEntry({
+        ...entry,
+        nazwaReceptury: recipeName,
+        rows: rowsByRecipeName.get(recipeName) ?? [],
+      });
+    })
+    .filter(Boolean);
+
+  rowsByRecipeName.forEach((rows, recipeName) => {
+    if (normalizedRecipes.some((entry) => entry.nazwaReceptury === recipeName)) return;
+    normalizedRecipes.push(normalizeRecipeEntry({ nazwaReceptury: recipeName, rows }));
+  });
+
+  return normalizedRecipes;
+}
+
 function getRecipeWybijakValidationError(rows, machinePunchCount) {
   const maxPunchCount = Math.max(1, Number.parseInt(String(machinePunchCount ?? DEFAULT_MACHINE_PUNCH_COUNT), 10) || DEFAULT_MACHINE_PUNCH_COUNT);
 
@@ -265,14 +350,21 @@ function getRecipeWybijakValidationError(rows, machinePunchCount) {
       return `Wiersz ${rowIndex + 1}: wybijak ma nieprawidłowy format.`;
     }
 
+    if (digits.length <= 2) {
+      if (digits === '0' || Number(digits) > maxPunchCount) {
+        return `Wiersz ${rowIndex + 1}: wybijak musi być w zakresie 1-${maxPunchCount}.`;
+      }
+      continue;
+    }
+
     const firstPunch = digits[0] ?? '';
-    const secondPunch = digits.length === 3 ? digits[2] ?? '' : digits[1] ?? '';
+    const secondPunch = digits[2] ?? '';
 
     if (!firstPunch || firstPunch === '0' || Number(firstPunch) > maxPunchCount) {
       return `Wiersz ${rowIndex + 1}: pierwszy wybijak musi być w zakresie 1-${maxPunchCount}.`;
     }
 
-    if (secondPunch && (secondPunch === '0' || Number(secondPunch) > maxPunchCount)) {
+    if (secondPunch === '0' || Number(secondPunch) > maxPunchCount) {
       return `Wiersz ${rowIndex + 1}: drugi wybijak musi być w zakresie 1-${maxPunchCount}.`;
     }
   }
@@ -282,14 +374,28 @@ function getRecipeWybijakValidationError(rows, machinePunchCount) {
 
 async function readRecipeCatalog() {
   try {
-    const content = await fs.readFile(recipesFilePath, 'utf8');
-    const payload = JSON.parse(content);
-    return Array.isArray(payload?.recipes) ? payload.recipes.map((entry) => normalizeRecipeEntry(entry)) : [];
+    const content = await fs.readFile(recipesWorkbookPath);
+    const workbook = XLSX.read(content, { type: 'buffer' });
+    return parseRecipeWorkbook(workbook);
   } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return [];
+    if (error?.code !== 'ENOENT') {
+      throw error;
     }
-    throw error;
+
+    try {
+      const legacyContent = await fs.readFile(legacyRecipesFilePath, 'utf8');
+      const payload = JSON.parse(legacyContent);
+      const recipes = Array.isArray(payload?.recipes) ? payload.recipes.map((entry) => normalizeRecipeEntry(entry)) : [];
+      if (recipes.length) {
+        await writeRecipeCatalog(recipes);
+      }
+      return recipes;
+    } catch (legacyError) {
+      if (legacyError?.code === 'ENOENT') {
+        return [];
+      }
+      throw legacyError;
+    }
   }
 }
 
@@ -299,11 +405,16 @@ async function writeJsonFileAtomically(targetPath, content) {
   await fs.rename(tempPath, targetPath);
 }
 
+async function writeBinaryFileAtomically(targetPath, content) {
+  const tempPath = `${targetPath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await fs.writeFile(tempPath, content);
+  await fs.rename(tempPath, targetPath);
+}
+
 async function writeRecipeCatalog(recipes) {
-  await writeJsonFileAtomically(
-    recipesFilePath,
-    JSON.stringify({ recipes: Array.isArray(recipes) ? recipes.map((entry) => normalizeRecipeEntry(entry)) : [] }, null, 2),
-  );
+  const workbook = buildRecipeWorkbook(recipes);
+  const content = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+  await writeBinaryFileAtomically(recipesWorkbookPath, content);
 }
 
 function mergeImportedRecipes(existingRecipes, importedRecipes) {
@@ -1398,12 +1509,14 @@ function productSavePlugin() {
 
         try {
           const recipes = await readRecipeCatalog();
-          const fileName = `receptury-export-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-').replace(/Z$/, '')}.json`;
+          const fileName = `receptury-export-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-').replace(/Z$/, '')}.xlsx`;
+          const workbook = buildRecipeWorkbook(recipes);
+          const content = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
           res.statusCode = 200;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           res.setHeader('Cache-Control', 'no-store');
           res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-          res.end(JSON.stringify({ recipes }, null, 2));
+          res.end(content);
         } catch (error) {
           sendJson(res, 500, { error: error.message || 'Błąd eksportu receptur.' });
         }

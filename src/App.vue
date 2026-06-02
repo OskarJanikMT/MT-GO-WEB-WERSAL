@@ -1388,7 +1388,7 @@
                 <input
                   ref="recipeImportInput"
                   type="file"
-                  accept=".json,application/json"
+                  accept=".xlsx"
                   class="visually-hidden"
                   @change="handleRecipeImport"
                 />
@@ -2202,6 +2202,28 @@ const recipeColumnLabels = {
   Informacje: 'Informacje',
   TekstDoDruku: 'Tekst do druku',
 };
+const RECIPE_EXPORT_COLUMNS = ['idRap', 'nazwaReceptury', 'CzasOdloz', 'createdAt', 'lastUsedAt', 'Usr'];
+const RECIPE_ROW_EXPORT_COLUMNS = [
+  'nazwaReceptury',
+  'nazwaProduktu',
+  'TekstDoDruku',
+  'nazwaSkladowej',
+  'dlugosc',
+  'grubosc',
+  'szerokosc',
+  'material',
+  'Klasa',
+  'klasa',
+  'idReceptury',
+  'idSkladowej',
+  'wybijak',
+  'grupa',
+  'priorytet',
+  'ilosc',
+  'Stanowisko',
+  'iloscWykonana',
+  'Informacje',
+];
 
 const workColumns = [
   'id',
@@ -3111,14 +3133,21 @@ function getRecipeWybijakValidationIssue(row, rowIndex = null) {
     return `${rowPrefix}wybijak ma nieprawidłowy format.`;
   }
 
+  if (rawDigits.length <= 2) {
+    if (rawDigits === '0' || Number(rawDigits) > maxPunchCount) {
+      return `${rowPrefix}wybijak musi być w zakresie 1-${maxPunchCount}.`;
+    }
+    return '';
+  }
+
   const digitFirstPart = rawDigits[0] ?? '';
-  const digitSecondPart = rawDigits[1] ?? '';
+  const digitSecondPart = rawDigits[2] ?? '';
 
   if (digitFirstPart === '0' || Number(digitFirstPart) > maxPunchCount) {
     return `${rowPrefix}pierwszy wybijak musi być w zakresie 1-${maxPunchCount}.`;
   }
 
-  if (rawDigits.length === 2 && (digitSecondPart === '0' || Number(digitSecondPart) > maxPunchCount)) {
+  if (digitSecondPart === '0' || Number(digitSecondPart) > maxPunchCount) {
     return `${rowPrefix}drugi wybijak musi być w zakresie 1-${maxPunchCount}.`;
   }
 
@@ -5741,13 +5770,13 @@ function getWybijakValueForStation(stationValue, lengthValue = 0) {
     return distance > 0 && normalizedLength > 0 && normalizedLength < distance;
   });
 
-  if (punchNumbers.length === 2 && isSpecialTenElevenWybijakPair(punchNumbers[0], punchNumbers[1])) {
-    return '11110';
-  }
   if (hasTooShortLengthForDistance) {
     return punchNumbers[0];
   }
   if (punchNumbers.length === 1) return punchNumbers[0];
+  if (punchNumbers.length === 2 && isSpecialTenElevenWybijakPair(punchNumbers[0], punchNumbers[1])) {
+    return '11110';
+  }
   return `${punchNumbers[0]}0${punchNumbers[1]}`;
 }
 
@@ -6182,6 +6211,67 @@ function readFileAsArrayBuffer(file) {
     reader.onerror = () => reject(reader.error || new Error('Nie udało się odczytać pliku.'));
     reader.readAsArrayBuffer(file);
   });
+}
+
+function hasRecipeWorkbookRowContent(row) {
+  if (!row || typeof row !== 'object') return false;
+  return Object.entries(row).some(([key, value]) => key !== 'nazwaReceptury' && String(value ?? '').trim() !== '');
+}
+
+function buildRecipeExportWorkbook(recipes) {
+  const normalizedRecipes = Array.isArray(recipes) ? recipes : [];
+  const summaryRows = normalizedRecipes.map((recipe) =>
+    Object.fromEntries(RECIPE_EXPORT_COLUMNS.map((column) => [column, recipe?.[column] ?? ''])),
+  );
+  const detailRows = normalizedRecipes.flatMap((recipe) =>
+    (Array.isArray(recipe?.rows) ? recipe.rows : []).map((row) =>
+      Object.fromEntries(RECIPE_ROW_EXPORT_COLUMNS.map((column) => [column, column === 'nazwaReceptury' ? recipe.nazwaReceptury : (row?.[column] ?? '')])),
+    ),
+  );
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), 'Receptury');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailRows), 'Wiersze');
+  return workbook;
+}
+
+function parseRecipeWorkbook(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const recipeSheet = workbook?.Sheets?.Receptury;
+  const recipeRowsSheet = workbook?.Sheets?.Wiersze;
+  const recipeEntries = recipeSheet ? XLSX.utils.sheet_to_json(recipeSheet, { defval: '' }) : [];
+  const rowEntries = recipeRowsSheet ? XLSX.utils.sheet_to_json(recipeRowsSheet, { defval: '' }) : [];
+  const rowsByRecipeName = new Map();
+
+  rowEntries.forEach((entry) => {
+    const recipeName = String(entry?.nazwaReceptury || '').trim();
+    if (!recipeName) return;
+    const { nazwaReceptury: _recipeName, ...row } = entry;
+    if (!hasRecipeWorkbookRowContent(row)) return;
+    if (!rowsByRecipeName.has(recipeName)) {
+      rowsByRecipeName.set(recipeName, []);
+    }
+    rowsByRecipeName.get(recipeName).push(row);
+  });
+
+  const recipes = recipeEntries
+    .map((entry) => {
+      const recipeName = String(entry?.nazwaReceptury || '').trim();
+      if (!recipeName) return null;
+      return {
+        ...entry,
+        nazwaReceptury: recipeName,
+        rows: rowsByRecipeName.get(recipeName) ?? [],
+      };
+    })
+    .filter(Boolean);
+
+  rowsByRecipeName.forEach((rows, recipeName) => {
+    if (recipes.some((entry) => entry.nazwaReceptury === recipeName)) return;
+    recipes.push({ nazwaReceptury: recipeName, rows });
+  });
+
+  return recipes;
 }
 
 function parseSavedWorkRows(serializedRows) {
@@ -7456,7 +7546,7 @@ function exportRecipeCatalog() {
   clearRecipeCatalogActionMessage();
   const link = document.createElement('a');
   link.href = `/api/recipes/export?t=${Date.now()}`;
-  link.download = `receptury-export-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = `receptury-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -7464,15 +7554,8 @@ function exportRecipeCatalog() {
 }
 
 function downloadRecipesExport(recipes, fileName) {
-  const blob = new Blob([JSON.stringify({ recipes }, null, 2)], { type: 'application/json;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
+  const workbook = buildRecipeExportWorkbook(recipes);
+  XLSX.writeFile(workbook, fileName, { bookType: 'xlsx' });
 }
 
 function exportSelectedRecipes() {
@@ -7480,7 +7563,7 @@ function exportSelectedRecipes() {
   clearRecipeCatalogActionMessage();
   downloadRecipesExport(
     selectedRecipeCatalogEntries.value,
-    `receptury-zaznaczone-${new Date().toISOString().slice(0, 10)}.json`,
+    `receptury-zaznaczone-${new Date().toISOString().slice(0, 10)}.xlsx`,
   );
   recipeCatalogActionMessage.value = `Wyeksportowano ${selectedRecipeCatalogCount.value} zaznaczonych receptur.`;
 }
@@ -7565,9 +7648,9 @@ async function handleRecipeImport(event) {
   event.target.value = '';
   if (!file) return;
 
-  if (!file.name.toLowerCase().endsWith('.json')) {
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
     recipeCatalogActionError.value = true;
-    recipeCatalogActionMessage.value = 'Możesz importować tylko pliki .json.';
+    recipeCatalogActionMessage.value = 'Możesz importować tylko pliki .xlsx.';
     return;
   }
 
@@ -7575,13 +7658,9 @@ async function handleRecipeImport(event) {
   clearRecipeCatalogActionMessage();
 
   try {
-    const contentText = await readFileAsText(file);
-    const parsedPayload = JSON.parse(contentText);
-    const importedRecipes = Array.isArray(parsedPayload)
-      ? parsedPayload
-      : Array.isArray(parsedPayload?.recipes)
-        ? parsedPayload.recipes
-        : [];
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+    const importedRecipes = parseRecipeWorkbook(arrayBuffer);
+    const contentText = JSON.stringify({ recipes: importedRecipes });
 
     if (!importedRecipes.length) {
       throw new Error('Plik importu nie zawiera żadnych receptur.');
