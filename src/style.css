@@ -1474,7 +1474,75 @@ button {
 .work-progress-inline-edit {
   display: inline-flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 4px;
+  white-space: nowrap;
+}
+
+.work-progress-input-group {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.work-progress-step-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-heading);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.work-progress-step-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--accent);
+}
+
+.work-progress-input-group .work-progress-step-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.work-progress-input-group .work-progress-step-btn:last-child {
+  border-left: 1px solid var(--border);
+}
+
+.work-progress-edit-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.work-progress-input-group .work-done-input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  min-width: 5ch;
+  height: 22px;
+}
+
+.work-done-input::placeholder {
+  color: rgba(148, 163, 184, 0.9);
+  opacity: 1;
+}
+
+.work-progress-cell-editing {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  justify-content: center;
 }
 
 .work-progress-slash {
@@ -1549,9 +1617,9 @@ button {
 
 .work-data-table th:nth-last-child(2),
 .work-data-table td:nth-last-child(2) {
-  width: 132px;
-  min-width: 132px;
-  max-width: 132px;
+  width: 176px;
+  min-width: 176px;
+  max-width: 176px;
   text-align: center;
 }
 

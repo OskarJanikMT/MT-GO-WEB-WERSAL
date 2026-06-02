@@ -521,7 +521,7 @@
                         >
                           <option value=""></option>
                           <option
-                            v-for="option in isStationColumn(column) ? getStationDropdownOptions(item[column]) : getProductDropdownOptions(editingRows, item, column)"
+                            v-for="option in isStationColumn(column) ? getStationDropdownOptions(item[column], true) : getProductDropdownOptions(editingRows, item, column)"
                             :key="`${column}-${item._localId}-${option.value ?? option}`"
                             :value="option.value ?? option"
                           >
@@ -1778,6 +1778,7 @@
                   </div>
                 </div>
                 <div class="work-table-source-actions">
+                  <span>Filtrowanie podglądu:</span>
                   <select v-model="workPrzekrojFilter" class="select-input work-cross-section-filter">
                     <option value="">Wszystkie przekroje</option>
                     <option v-for="option in workPrzekrojFilterOptions" :key="`work-przekroj-${option}`" :value="option">
@@ -3489,14 +3490,14 @@ function finishWorkCorrectionEdit(targetRowId = workEditingRowId.value) {
   }
   workRowActionLockUntil.value = {
     ...workRowActionLockUntil.value,
-    [targetRowId]: Date.now() + 100,
+    [targetRowId]: Date.now() + 200,
   };
   const releaseTimer = window.setTimeout(() => {
     const nextLocks = { ...workRowActionLockUntil.value };
     delete nextLocks[targetRowId];
     workRowActionLockUntil.value = nextLocks;
     workRowActionLockTimers.delete(targetRowId);
-  }, 100);
+  }, 200);
   workRowActionLockTimers.set(targetRowId, releaseTimer);
   workEditingRowId.value = null;
 }
@@ -3568,6 +3569,11 @@ function updateWorkProgressValue(rowId, field, value) {
       [field]: String(value ?? '').replace(/[^\d]/g, ''),
     },
   };
+}
+
+function adjustWorkProgressValue(rowId, field, delta) {
+  const currentValue = getWorkProgressDraftValue(rowId, field, 0);
+  updateWorkProgressValue(rowId, field, Math.max(0, currentValue + delta));
 }
 
 function getWorkProgressDraftValue(rowId, field, fallbackValue) {
@@ -4747,6 +4753,19 @@ function getConfigStationLabel(stationIndex) {
   return `Stanowisko ${stationIndex + 1}`;
 }
 
+function getStationPlainLabel(stationValue) {
+  const normalizedValue = normalizeStationValue(stationValue);
+  if (!normalizedValue) return '';
+  if (isDyszaStationValue(normalizedValue)) return 'Dysza';
+
+  const stationIndex = Number.parseInt(normalizedValue, 10) - 1;
+  if (!Number.isFinite(stationIndex) || stationIndex < 0) {
+    return `Stanowisko ${normalizedValue}`;
+  }
+
+  return getConfigStationLabel(stationIndex);
+}
+
 function isDyszaStationValue(value) {
   return String(value ?? '').trim().toLowerCase() === SPECIAL_DYSZA_STATION_VALUE;
 }
@@ -5726,7 +5745,7 @@ function getColumnLabelText(column, labels = {}) {
   return labels[column] ?? column;
 }
 
-function getStationDropdownOptions(currentValue = '') {
+function getStationDropdownOptions(currentValue = '', compactSelectedValue = false) {
   const normalizedCurrentValue = normalizeStationValue(currentValue);
   const options = [...stationOptions.value];
 
@@ -5734,8 +5753,21 @@ function getStationDropdownOptions(currentValue = '') {
     options.push({
       id: `legacy-station-${normalizedCurrentValue}`,
       value: normalizedCurrentValue,
-      label: `Stanowisko ${normalizedCurrentValue}`,
+      label: getStationPlainLabel(normalizedCurrentValue) || `Stanowisko ${normalizedCurrentValue}`,
     });
+  }
+
+  if (compactSelectedValue && normalizedCurrentValue) {
+    const selectedOption = options.find((option) => option.value === normalizedCurrentValue);
+    const compactLabel = getStationPlainLabel(normalizedCurrentValue) || selectedOption?.label || String(currentValue ?? '');
+    return [
+      {
+        id: `selected-station-${normalizedCurrentValue}`,
+        value: normalizedCurrentValue,
+        label: compactLabel,
+      },
+      ...options.filter((option) => option.value !== normalizedCurrentValue),
+    ];
   }
 
   return options;
@@ -5934,7 +5966,7 @@ function getMergeDropdownOptions(productName, row, column) {
   }
 
   if (isStationColumn(column)) {
-    return getStationDropdownOptions(row?.[column]);
+    return getStationDropdownOptions(row?.[column], true);
   }
 
   return [];
@@ -6811,7 +6843,7 @@ function updateEditedWybijakPart(localId, partIndex, value) {
 function getEditInputStyle(value, localId, column) {
   let contentLength = String(value ?? '').length;
   if (isStationColumn(column)) {
-    const selectedOption = getStationDropdownOptions(value).find((option) => option.value === normalizeStationValue(value));
+    const selectedOption = getStationDropdownOptions(value, true).find((option) => option.value === normalizeStationValue(value));
     contentLength = String(selectedOption?.label || value || '').length;
   }
   const isActive = activeEditCell.value === `${localId}:${column}`;
@@ -6843,7 +6875,7 @@ function getMergeEditInputStyle(column, value) {
 function getRecipePreviewEditInputStyle(column, value) {
   let contentLength = String(value ?? '').length;
   if (isStationColumn(column)) {
-    const selectedOption = getStationDropdownOptions(value).find((option) => option.value === normalizeStationValue(value));
+    const selectedOption = getStationDropdownOptions(value, true).find((option) => option.value === normalizeStationValue(value));
     contentLength = String(selectedOption?.label || value || '').length;
   }
   const widthConfig = {
@@ -6871,7 +6903,7 @@ function getRecipePreviewEditInputStyle(column, value) {
 function getWorkEditInputStyle(column, value) {
   let contentLength = String(value ?? '').length;
   if (isStationColumn(column)) {
-    const selectedOption = getStationDropdownOptions(value).find((option) => option.value === normalizeStationValue(value));
+    const selectedOption = getStationDropdownOptions(value, true).find((option) => option.value === normalizeStationValue(value));
     contentLength = String(selectedOption?.label || value || '').length;
   }
 
@@ -8554,6 +8586,15 @@ const WorkTable = defineComponent({
       return sortKey.value === column;
     }
 
+    function handleRowDoubleClick(event, row) {
+      const target = event?.target;
+      if (target instanceof HTMLElement && target.closest('button, input, select, textarea, a, label')) {
+        return;
+      }
+      if (!row?.__clientId || isWorkRowEditing(row.__clientId)) return;
+      startWorkCorrectionEdit(row.__clientId);
+    }
+
     return () =>
       h('div', { class: 'table-wrap' }, [
         h('table', { class: 'data-table work-data-table' }, [
@@ -8588,6 +8629,7 @@ const WorkTable = defineComponent({
                         'tr',
                     {
                       key: row.__clientId ?? row.id ?? row.Nazwa,
+                      onDblclick: (event) => handleRowDoubleClick(event, row),
                       class: {
                         disabled: row.__disabled,
                         'pending-sync': row.__isPendingSync,
@@ -8655,7 +8697,7 @@ const WorkTable = defineComponent({
                                 },
                                 [
                                   h('option', { value: '' }, ''),
-                                  ...getStationDropdownOptions(row[column]).map((option) =>
+                                  ...getStationDropdownOptions(row[column], true).map((option) =>
                                     h('option', { key: `${row.__clientId}-${column}-${option.value}`, value: option.value }, option.label),
                                   ),
                                 ],
@@ -8747,6 +8789,69 @@ const WorkTable = defineComponent({
                       const draftDoneValue = getWorkProgressDraftValue(row.__clientId, 'WykonaneSztuki', doneValue);
                       const draftTotalValue = getWorkProgressDraftValue(row.__clientId, 'Sztuk', totalValue);
                       const progressPercent = getWorkProgressPercent(doneValue, totalValue);
+                      const isEditingProgress = isWorkRowEditing(row.__clientId);
+
+                      if (isEditingProgress) {
+                        return h('td', { key: `${row.__clientId}-${column}` }, [
+                          h('div', { class: 'work-progress-cell work-progress-cell-editing' }, [
+                            h('div', { class: 'work-progress-edit-wrap', 'data-work-progress-editor': row.__clientId }, [
+                              h('div', { class: 'work-progress-inline-edit' }, [
+                                h('div', { class: 'work-progress-input-group' }, [
+                                  h('button', {
+                                    class: 'work-progress-step-btn',
+                                    type: 'button',
+                                    title: 'Zmniejsz wykonane',
+                                    onClick: () => adjustWorkProgressValue(row.__clientId, 'WykonaneSztuki', -1),
+                                  }, '-'),
+                                  h('input', {
+                                    class: 'edit-input work-done-input',
+                                    value: draftDoneValue,
+                                    placeholder: String(doneValue),
+                                    inputmode: 'numeric',
+                                    onInput: (event) => updateWorkProgressValue(row.__clientId, 'WykonaneSztuki', event.target.value),
+                                    onKeydown: (event) => {
+                                      if (event.key === 'Enter') finishWorkCorrectionEdit(row.__clientId);
+                                    },
+                                    onBlur: (event) => handleWorkProgressInputBlur(event, row.__clientId),
+                                  }),
+                                  h('button', {
+                                    class: 'work-progress-step-btn',
+                                    type: 'button',
+                                    title: 'Zwiększ wykonane',
+                                    onClick: () => adjustWorkProgressValue(row.__clientId, 'WykonaneSztuki', 1),
+                                  }, '+'),
+                                ]),
+                                h('span', { class: 'work-progress-slash' }, '/'),
+                                h('div', { class: 'work-progress-input-group' }, [
+                                  h('button', {
+                                    class: 'work-progress-step-btn',
+                                    type: 'button',
+                                    title: 'Zmniejsz całość',
+                                    onClick: () => adjustWorkProgressValue(row.__clientId, 'Sztuk', -1),
+                                  }, '-'),
+                                  h('input', {
+                                    class: 'edit-input work-done-input',
+                                    value: draftTotalValue,
+                                    placeholder: String(totalValue),
+                                    inputmode: 'numeric',
+                                    onInput: (event) => updateWorkProgressValue(row.__clientId, 'Sztuk', event.target.value),
+                                    onKeydown: (event) => {
+                                      if (event.key === 'Enter') finishWorkCorrectionEdit(row.__clientId);
+                                    },
+                                    onBlur: (event) => handleWorkProgressInputBlur(event, row.__clientId),
+                                  }),
+                                  h('button', {
+                                    class: 'work-progress-step-btn',
+                                    type: 'button',
+                                    title: 'Zwiększ całość',
+                                    onClick: () => adjustWorkProgressValue(row.__clientId, 'Sztuk', 1),
+                                  }, '+'),
+                                ]),
+                              ]),
+                            ]),
+                          ]),
+                        ]);
+                      }
 
                       return h('td', { key: `${row.__clientId}-${column}` }, [
                         h('div', { class: 'work-progress-cell' }, [
@@ -8758,31 +8863,7 @@ const WorkTable = defineComponent({
                                 style: { width: `${progressPercent}%` },
                               }),
                               h('div', { class: 'work-progress-bar-content' }, [
-                                isWorkRowEditing(row.__clientId)
-                                  ? h('div', { class: 'work-progress-inline-edit', 'data-work-progress-editor': row.__clientId }, [
-                                      h('input', {
-                                        class: 'edit-input work-done-input',
-                                        value: draftDoneValue,
-                                        inputmode: 'numeric',
-                                        onInput: (event) => updateWorkProgressValue(row.__clientId, 'WykonaneSztuki', event.target.value),
-                                        onKeydown: (event) => {
-                                          if (event.key === 'Enter') finishWorkCorrectionEdit(row.__clientId);
-                                        },
-                                        onBlur: (event) => handleWorkProgressInputBlur(event, row.__clientId),
-                                      }),
-                                      h('span', { class: 'work-progress-slash' }, '/'),
-                                      h('input', {
-                                        class: 'edit-input work-done-input',
-                                        value: draftTotalValue,
-                                        inputmode: 'numeric',
-                                        onInput: (event) => updateWorkProgressValue(row.__clientId, 'Sztuk', event.target.value),
-                                        onKeydown: (event) => {
-                                          if (event.key === 'Enter') finishWorkCorrectionEdit(row.__clientId);
-                                        },
-                                        onBlur: (event) => handleWorkProgressInputBlur(event, row.__clientId),
-                                      }),
-                                    ])
-                                  : h('span', { class: 'work-progress-value' }, `${doneValue}/${totalValue}`),
+                                h('span', { class: 'work-progress-value' }, `${doneValue}/${totalValue}`),
                               ]),
                             ]),
                           ]),
@@ -8915,7 +8996,7 @@ const RecipePreviewTable = defineComponent({
 
                         if (isDropdownColumn(column) || isStationColumn(column)) {
                           const options = isStationColumn(column)
-                            ? getStationDropdownOptions(row?.[column])
+                            ? getStationDropdownOptions(row?.[column], true)
                             : getMergeDropdownOptions('', row, column);
                           return h('td', [
                             h(
