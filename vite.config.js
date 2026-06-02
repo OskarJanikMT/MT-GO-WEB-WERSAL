@@ -60,7 +60,7 @@ const editableColumnAliases = {
   Długość: ['Długość', 'DŁ', 'DŁ. [mm]', 'Dł', 'Dł. [mm]', 'Dlugosc'],
   Grubość: ['Grubość', 'GR.', 'GR. [mm]', 'Grubosc'],
   Szerokość: ['Szerokość', 'Sz', 'SZER. [mm]', 'Szerokosc'],
-  Klasa: ['Klasa', 'KLASA'],
+  Klasa: ['Klasa', 'KLASA', 'Klasa jakosci', 'KLASA JAKOSCI'],
   Grupa: ['Grupa', 'GRUPA'],
   Priorytet: ['Priorytet', 'PRIORYTET'],
   Wybijak: ['Wybijak'],
@@ -246,12 +246,23 @@ function getRecipeWybijakValidationError(rows, machinePunchCount) {
       return `Wiersz ${rowIndex + 1}: wybijak jest wymagany.`;
     }
 
-    if (digits.length > 3) {
-      return `Wiersz ${rowIndex + 1}: wybijak może mieć maksymalnie 3 cyfry.`;
+    if (digits.length > 5) {
+      return `Wiersz ${rowIndex + 1}: wybijak może mieć maksymalnie 5 cyfr.`;
+    }
+
+    if (digits.length === 5) {
+      if (digits !== '11110') {
+        return `Wiersz ${rowIndex + 1}: format 5-cyfrowy jest zarezerwowany dla wartości 11110.`;
+      }
+      continue;
     }
 
     if (digits.length === 3 && digits[1] !== '0') {
       return `Wiersz ${rowIndex + 1}: przy dwóch wybijakach środkowa cyfra musi być równa 0.`;
+    }
+
+    if (digits.length === 4) {
+      return `Wiersz ${rowIndex + 1}: wybijak ma nieprawidłowy format.`;
     }
 
     const firstPunch = digits[0] ?? '';
@@ -376,9 +387,19 @@ function fromSqlWorkStationNumber(value) {
 }
 
 function toSqlDigitSequenceNumber(value, fallback = 0) {
+  const rawValue = String(value ?? '').trim();
   const numericGroups = String(value ?? '')
     .match(/\d+/g)
     ?.slice(0, 2) ?? [];
+  const normalizedDigits = rawValue.replace(/[^\d]/g, '');
+
+  if (
+    (numericGroups.length === 2 && numericGroups[0] === '10' && numericGroups[1] === '11') ||
+    normalizedDigits === '10011'
+  ) {
+    return 11110;
+  }
+
   const normalizedText = numericGroups.join('');
   if (!normalizedText) return fallback;
   const parsed = Number.parseInt(normalizedText, 10);
@@ -465,13 +486,6 @@ BEGIN TRY
 
   DELETE FROM dbo.WorkMain;
 
-  DECLARE @countColumn SYSNAME =
-    CASE
-      WHEN COL_LENGTH('dbo.WorkMain', 'zliczonaIloscIn') IS NOT NULL THEN 'zliczonaIloscIn'
-      WHEN COL_LENGTH('dbo.WorkMain', 'zliczIloscWej') IS NOT NULL THEN 'zliczIloscWej'
-      ELSE NULL
-    END;
-
   DECLARE @classColumn SYSNAME =
     CASE
       WHEN COL_LENGTH('dbo.WorkMain', 'Klasa') IS NOT NULL THEN 'Klasa'
@@ -545,8 +559,7 @@ BEGIN TRY
       ' + QUOTENAME(@recipeNameColumn) ELSE N'' END + CASE WHEN @userColumn IS NOT NULL THEN N',
       ' + QUOTENAME(@userColumn) ELSE N'' END + CASE WHEN @createdAtColumn IS NOT NULL THEN N',
       ' + QUOTENAME(@createdAtColumn) ELSE N'' END + CASE WHEN @stationColumn IS NOT NULL THEN N',
-      ' + QUOTENAME(@stationColumn) ELSE N'' END + CASE WHEN @countColumn IS NOT NULL THEN N',
-      ' + QUOTENAME(@countColumn) ELSE N'' END + N'
+      ' + QUOTENAME(@stationColumn) ELSE N'' END + N'
     )
     SELECT
       id,
@@ -566,8 +579,7 @@ BEGIN TRY
       NazwaRec' ELSE N'' END + CASE WHEN @userColumn IS NOT NULL THEN N',
       Usr' ELSE N'' END + CASE WHEN @createdAtColumn IS NOT NULL THEN N',
       CONVERT(VARCHAR(19), GETDATE(), 120)' ELSE N'' END + CASE WHEN @stationColumn IS NOT NULL THEN N',
-      Stanowisko' ELSE N'' END + CASE WHEN @countColumn IS NOT NULL THEN N',
-      zliczonaIloscIn' ELSE N'' END + N'
+      Stanowisko' ELSE N'' END + N'
     FROM #WorkMainUpload;
   ';
 
@@ -715,13 +727,6 @@ BEGIN TRY
 ${insertRowsSql}  
   DELETE FROM dbo.WorkMain;
 
-  DECLARE @countColumn SYSNAME =
-    CASE
-      WHEN COL_LENGTH('dbo.WorkMain', 'zliczonaIloscIn') IS NOT NULL THEN 'zliczonaIloscIn'
-      WHEN COL_LENGTH('dbo.WorkMain', 'zliczIloscWej') IS NOT NULL THEN 'zliczIloscWej'
-      ELSE NULL
-    END;
-
   DECLARE @classColumn SYSNAME =
     CASE
       WHEN COL_LENGTH('dbo.WorkMain', 'Klasa') IS NOT NULL THEN 'Klasa'
@@ -801,8 +806,7 @@ ${insertRowsSql}
       ' + QUOTENAME(@recipeNameColumn) ELSE N'' END + CASE WHEN @userColumn IS NOT NULL THEN N',
       ' + QUOTENAME(@userColumn) ELSE N'' END + CASE WHEN @createdAtColumn IS NOT NULL THEN N',
       ' + QUOTENAME(@createdAtColumn) ELSE N'' END + CASE WHEN @stationColumn IS NOT NULL THEN N',
-      ' + QUOTENAME(@stationColumn) ELSE N'' END + CASE WHEN @countColumn IS NOT NULL THEN N',
-      ' + QUOTENAME(@countColumn) ELSE N'' END + N'' + CASE WHEN @doneColumn IS NOT NULL THEN N',
+      ' + QUOTENAME(@stationColumn) ELSE N'' END + N'' + CASE WHEN @doneColumn IS NOT NULL THEN N',
       ' + QUOTENAME(@doneColumn) ELSE N'' END + N'
     )
     SELECT
@@ -823,8 +827,7 @@ ${insertRowsSql}
       NazwaRec' ELSE N'' END + CASE WHEN @userColumn IS NOT NULL THEN N',
       Usr' ELSE N'' END + CASE WHEN @createdAtColumn IS NOT NULL THEN N',
       CONVERT(VARCHAR(19), GETDATE(), 120)' ELSE N'' END + CASE WHEN @stationColumn IS NOT NULL THEN N',
-      Stanowisko' ELSE N'' END + CASE WHEN @countColumn IS NOT NULL THEN N',
-      zliczonaIloscIn' ELSE N'' END + CASE WHEN @doneColumn IS NOT NULL THEN N',
+      Stanowisko' ELSE N'' END + CASE WHEN @doneColumn IS NOT NULL THEN N',
       WykonaneSztuki' ELSE N'' END + N'
     FROM #WorkMainSave;
   ';

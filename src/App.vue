@@ -382,6 +382,9 @@
                   class="visually-hidden"
                   @change="handleImportExcel"
                 />
+                <button class="tool-btn" :disabled="productsLoading || isFileActionLoading" @click="loadProductFiles">
+                  {{ productsLoading ? 'Odświeżanie...' : 'Odśwież folder' }}
+                </button>
                 <button class="tool-btn" :disabled="isFileActionLoading" @click="triggerImportExcel">Import Excel</button>
               </div>
             </div>
@@ -543,7 +546,7 @@
                               class="edit-input wybijak-part-input"
                               :value="getWybijakInputParts(item[column], item.Stanowisko)[0]"
                               inputmode="numeric"
-                              maxlength="1"
+                              maxlength="2"
                               @input="updateEditedWybijakPart(item._localId, 0, $event.target.value)"
                             />
                             <span class="wybijak-separator">i</span>
@@ -551,7 +554,7 @@
                               class="edit-input wybijak-part-input"
                               :value="getWybijakInputParts(item[column], item.Stanowisko)[1]"
                               inputmode="numeric"
-                              maxlength="1"
+                              maxlength="2"
                               @input="updateEditedWybijakPart(item._localId, 1, $event.target.value)"
                             />
                           </template>
@@ -565,6 +568,7 @@
                           @blur="activeEditCell = null"
                           @input="updateEditedCell(item._localId, column, $event.target.value)"
                         />
+                        <span v-else-if="column === 'Wybijak'">{{ formatWorkWybijakDisplayValue(item) }}</span>
                         <span v-else>{{ item[column] ?? '' }}</span>
                       </td>
                       <td v-if="isEditMode" class="row-actions-cell">
@@ -778,6 +782,46 @@
                   <p>{{ mergeAlert.message }}</p>
                   <div class="confirm-modal-actions">
                     <button class="tool-btn compact primary" @click="closeMergeAlert">Rozumiem</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="stationAutoAssignDialog.visible && stationAutoAssignDialog.target === 'merge'"
+              class="confirm-modal-overlay"
+              @click.self="closeStationAutoAssignDialog"
+            >
+              <div class="confirm-modal panel" @click.stop>
+                <div class="panel-header">
+                  <span>Automatyczne przypisywanie stanowisk</span>
+                </div>
+                <div class="confirm-modal-body">
+                  <p>Wybierz aktywne stanowiska do automatycznego przypisywania.</p>
+                  <div v-if="mergeAutoStationFilters.length" class="config-punch-list">
+                    <label
+                      v-for="station in mergeAutoStationFilters"
+                      :key="`merge-station-checkbox-${station.value}`"
+                      class="config-excel-column-row"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isMergeAutoStationEnabled(station.value)"
+                        @change="toggleMergeAutoStation(station.value)"
+                      />
+                      <span>{{ station.label }}</span>
+                    </label>
+                  </div>
+                  <p v-else class="panel-caption">Brak skonfigurowanych stanowisk.</p>
+                  <div class="confirm-modal-actions">
+                    <button class="tool-btn compact" @click="closeStationAutoAssignDialog">Anuluj</button>
+                    <button
+                      class="tool-btn compact primary"
+                      :disabled="!enabledMergeAutoStationValues.length"
+                      @click="applyStationAutoAssignMode('similar-together')"
+                    >
+                      Potwierdź
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1009,7 +1053,7 @@
                   <button
                     class="tool-btn compact primary"
                     :disabled="!recipeRows.length || !hasConfiguredStations"
-                    @click="applyMergeStationAssignmentsByLength"
+                    @click="openStationAutoAssignDialog('merge')"
                   >
                     Przypisz stanowiska automatycznie
                   </button>
@@ -1182,7 +1226,7 @@
                                     class="edit-input wybijak-part-input"
                                     :value="getWybijakInputParts(row[column], row.Stanowisko)[0]"
                                     inputmode="numeric"
-                                    maxlength="1"
+                                    maxlength="2"
                                     @input="updateMergeRecipeWybijakPart(group.productName, row._localId, 0, $event.target.value)"
                                   />
                                   <span class="wybijak-separator">i</span>
@@ -1190,7 +1234,7 @@
                                     class="edit-input wybijak-part-input"
                                     :value="getWybijakInputParts(row[column], row.Stanowisko)[1]"
                                     inputmode="numeric"
-                                    maxlength="1"
+                                    maxlength="2"
                                     @input="updateMergeRecipeWybijakPart(group.productName, row._localId, 1, $event.target.value)"
                                   />
                                 </template>
@@ -1617,7 +1661,7 @@
                   <button
                     class="tool-btn"
                     :disabled="!activeWorkRows.length || !hasConfiguredStations || workEditingRowId !== null || isWorkCorrectionSaving || isWorkEditPreparing"
-                    @click="applyWorkStationAssignmentsByLength"
+                    @click="openStationAutoAssignDialog('work')"
                   >
                     Przypisz stanowiska automatycznie
                   </button>
@@ -1641,6 +1685,46 @@
           </div>
 
           <div v-if="workUploadMessage" data-error-anchor="work-upload" class="save-status" :class="{ error: workUploadError }" v-html="getWorkUploadMessageHtml()"></div>
+
+          <div
+            v-if="stationAutoAssignDialog.visible && stationAutoAssignDialog.target === 'work'"
+            class="confirm-modal-overlay"
+            @click.self="closeStationAutoAssignDialog"
+          >
+            <div class="confirm-modal panel" @click.stop>
+              <div class="panel-header">
+                <span>Automatyczne przypisywanie stanowisk</span>
+              </div>
+              <div class="confirm-modal-body">
+                <p>Wybierz aktywne stanowiska do automatycznego przypisywania.</p>
+                <div v-if="mergeAutoStationFilters.length" class="config-punch-list">
+                  <label
+                    v-for="station in mergeAutoStationFilters"
+                    :key="`work-station-checkbox-${station.value}`"
+                    class="config-excel-column-row"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isMergeAutoStationEnabled(station.value)"
+                      @change="toggleMergeAutoStation(station.value)"
+                    />
+                    <span>{{ station.label }}</span>
+                  </label>
+                </div>
+                <p v-else class="panel-caption">Brak skonfigurowanych stanowisk.</p>
+                <div class="confirm-modal-actions">
+                  <button class="tool-btn compact" @click="closeStationAutoAssignDialog">Anuluj</button>
+                  <button
+                    class="tool-btn compact primary"
+                    :disabled="!enabledMergeAutoStationValues.length"
+                    @click="applyStationAutoAssignMode('similar-together')"
+                  >
+                    Potwierdź
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div v-if="isWorkRecipePreviewOpen" class="confirm-modal-overlay" @click.self="closeWorkRecipePreview">
             <div class="confirm-modal panel panel-wide work-recipe-preview-modal" @click.stop>
@@ -1694,6 +1778,12 @@
                   </div>
                 </div>
                 <div class="work-table-source-actions">
+                  <select v-model="workPrzekrojFilter" class="select-input work-cross-section-filter">
+                    <option value="">Wszystkie przekroje</option>
+                    <option v-for="option in workPrzekrojFilterOptions" :key="`work-przekroj-${option}`" :value="option">
+                      {{ option }}
+                    </option>
+                  </select>
                   <button
                     class="tool-btn compact"
                     :disabled="!hasPendingWorkChanges || isWorkCorrectionSaving || isWorkEditPreparing"
@@ -1972,7 +2062,7 @@ const productSummaryLabels = {
   ostatniaAktualizacja: 'Źródło',
 };
 
-const productColumns = ['Nr', 'Kod', 'Długość', 'Grubość', 'Szerokość', 'Materiał', 'ilość', 'Stanowisko', 'Wybijak'];
+const productColumns = ['Nr', 'Kod', 'Długość', 'Grubość', 'Szerokość', 'Materiał', 'Klasa', 'ilość', 'Stanowisko'];
 const productImportFieldDefinitions = [
   {
     key: 'Nazwa',
@@ -2026,7 +2116,7 @@ const productImportFieldDefinitions = [
     key: 'Klasa',
     label: 'Klasa',
     required: false,
-    aliases: ['Klasa', 'KLASA'],
+    aliases: ['Klasa', 'KLASA', 'Klasa jakosci', 'KLASA JAKOSCI'],
   },
   {
     key: 'Stanowisko',
@@ -2045,11 +2135,12 @@ const productColumnLabels = {
   'Grubość': 'Grubość',
   'Szerokość': 'Szerokość',
   'Materiał': 'Materiał',
+  Klasa: 'Klasa',
   'ilość': 'ilość',
   Stanowisko: 'Stanowisko',
   Wybijak: 'Wybijak',
 };
-const editableProductColumns = ['Długość', 'Grubość', 'Szerokość', 'Materiał', 'Kod', 'ilość', 'Stanowisko', 'Wybijak'];
+const editableProductColumns = ['Długość', 'Grubość', 'Szerokość', 'Materiał', 'Kod', 'Klasa', 'ilość', 'Stanowisko'];
 
 const recipeSummaryColumns = ['nazwaReceptury', 'liczbaPozycji', 'sumaElementow', 'materialy', 'createdAt', 'lastUsedAt'];
 const recipeCatalogColumns = ['nazwaReceptury', 'liczbaPozycji', 'sumaElementow', 'materialy', 'createdAt', 'lastUsedAt'];
@@ -2088,6 +2179,7 @@ const mergeRecipeColumns = [
   'grubosc',
   'szerokosc',
   'material',
+  'klasa',
   'ilosc',
   'Stanowisko',
   'wybijak',
@@ -2098,6 +2190,7 @@ const recipeColumnLabels = {
   grubosc: 'Grubość',
   szerokosc: 'Szerokość',
   material: 'Materiał',
+  klasa: 'Klasa',
   idReceptury: 'ID receptury',
   idSkladowej: 'ID składowej',
   wybijak: 'Wybijak',
@@ -2117,6 +2210,7 @@ const workColumns = [
   'Grubosc',
   'Szerokosc',
   'Material',
+  'Klasa',
   'Stanowisko',
   'Wybijak',
   'Progress',
@@ -2140,6 +2234,7 @@ const workColumnLabels = {
   Grubosc: 'Grubość',
   Szerokosc: 'Szerokość',
   Dlugosc: 'Długość',
+  Klasa: 'Klasa',
   Stanowisko: 'Stanowisko',
   Progress: 'Progress',
   Wybijak: 'Wybijak',
@@ -2205,6 +2300,7 @@ const mergeAlert = ref({
   visible: false,
   message: '',
 });
+const mergeAutoStationEnabled = ref({});
 const stationAutoAssignDialog = ref({
   visible: false,
   target: '',
@@ -2258,6 +2354,7 @@ const isWorkRecipePreviewOpen = ref(false);
 const isSavedRecipePreviewOpen = ref(false);
 const savedWorkPreviewId = ref('');
 const workRecipeSearch = ref('');
+const workPrzekrojFilter = ref('');
 const workTableSourceName = ref('');
 const workTableSourceMode = ref('active');
 const workMainLastRefreshAt = ref(null);
@@ -2284,6 +2381,8 @@ const isWorkEditPreparing = ref(false);
 const workUploadMessage = ref('');
 const workUploadError = ref(false);
 const workEditingRowId = ref(null);
+const workRowActionLockUntil = ref({});
+const workRowActionLockTimers = new Map();
 const isWorkProductModalOpen = ref(false);
 const workSourceProductName = ref('');
 const workSourceRowSearch = ref('');
@@ -2456,6 +2555,29 @@ const stationOptions = computed(() =>
       label: 'Dysza',
     },
   ],
+);
+const mergeAutoStationFilters = computed(() =>
+  configStations.value.map((station, index) => ({
+    id: station.id,
+    value: String(index + 1),
+    label: getConfigStationLabel(index),
+  })),
+);
+const enabledMergeAutoStationValues = computed(() =>
+  mergeAutoStationFilters.value
+    .filter((station) => isMergeAutoStationEnabled(station.value))
+    .map((station) => station.value),
+);
+watch(
+  mergeAutoStationFilters,
+  (stations) => {
+    const nextEnabledState = {};
+    stations.forEach((station) => {
+      nextEnabledState[station.value] = mergeAutoStationEnabled.value[station.value] !== false;
+    });
+    mergeAutoStationEnabled.value = nextEnabledState;
+  },
+  { immediate: true },
 );
 const hasValidRenameExtension = computed(() => renameDraft.value.trim().toLowerCase().endsWith('.xlsx'));
 const canSubmitRename = computed(() => {
@@ -2804,6 +2926,21 @@ const savedWorkRowsById = computed(
     ),
 );
 const activeWorkRows = computed(() => workRows.value.filter((row) => !row.__disabled));
+const workPrzekrojFilterOptions = computed(() =>
+  [...new Set(
+    activeWorkRows.value
+      .map((row, index) => getWorkRowPayload(row, index).Przekroj)
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right, 'pl', { numeric: true, sensitivity: 'base' })),
+);
+const filteredWorkRows = computed(() => {
+  if (!workPrzekrojFilter.value) return workRows.value;
+
+  return workRows.value.filter((row, index) => {
+    if (row?.__disabled) return false;
+    return getWorkRowPayload(row, index).Przekroj === workPrzekrojFilter.value;
+  });
+});
 const overallWorkDone = computed(() =>
   activeWorkRows.value.reduce((sum, row) => sum + normalizeWorkCorrectionValue(row?.WykonaneSztuki), 0),
 );
@@ -2831,15 +2968,25 @@ const isWorkMainManualRefreshDisabled = computed(
     isWorkCorrectionSaving.value ||
     isWorkEditPreparing.value,
 );
+watch(
+  workPrzekrojFilterOptions,
+  (options) => {
+    if (workPrzekrojFilter.value && !options.includes(workPrzekrojFilter.value)) {
+      workPrzekrojFilter.value = '';
+    }
+  },
+  { immediate: true },
+);
 
 const workDisplayRows = computed(() =>
-  workRows.value.map((row) => ({
+  filteredWorkRows.value.map((row) => ({
     __clientId: row.__clientId,
     __disabled: Boolean(row.__disabled),
     __isPendingSync: isWorkRowPendingSync(row),
     id: row.id ?? '',
     Nazwa: row.Nazwa ?? '',
     Material: row.Material ?? '',
+    Klasa: row.Klasa ?? '',
     Grubosc: row.Grubosc ?? '',
     Szerokosc: row.Szerokosc ?? '',
     Dlugosc: row.Dlugosc ?? '',
@@ -2902,7 +3049,11 @@ function normalizeWorkWybijakValue(value) {
 function normalizeWybijakPartInputValue(value) {
   return String(value ?? '')
     .replace(/[^\d]/g, '')
-    .slice(0, 1);
+    .slice(0, 2);
+}
+
+function isSpecialTenElevenWybijakPair(firstPart, secondPart) {
+  return String(firstPart ?? '').trim() === '10' && String(secondPart ?? '').trim() === '11';
 }
 
 function getRecipeWybijakValidationIssue(row, rowIndex = null) {
@@ -2921,12 +3072,14 @@ function getRecipeWybijakValidationIssue(row, rowIndex = null) {
     return `${rowPrefix}wybijak jest wymagany.`;
   }
 
-  if (rawValue.includes(' i ')) {
-    if (!normalizedFirstPart || !normalizedSecondPart) {
+  if (normalizedSecondPart) {
+    if (!normalizedFirstPart) {
       return `${rowPrefix}wybijak musi mieć dwie poprawne wartości.`;
     }
-    if (normalizedFirstPart.length > 1 || normalizedSecondPart.length > 1) {
-      return `${rowPrefix}każdy wybijak może mieć tylko jedną cyfrę.`;
+    if (!isSpecialTenElevenWybijakPair(normalizedFirstPart, normalizedSecondPart)) {
+      if (normalizedFirstPart.length > 1 || normalizedSecondPart.length > 1) {
+        return `${rowPrefix}tylko para 10 i 11 może mieć dwucyfrowe wartości.`;
+      }
     }
     if (normalizedFirstPart === '0' || Number(normalizedFirstPart) > maxPunchCount) {
       return `${rowPrefix}pierwszy wybijak musi być w zakresie 1-${maxPunchCount}.`;
@@ -2939,12 +3092,23 @@ function getRecipeWybijakValidationIssue(row, rowIndex = null) {
 
   const rawDigits = `${normalizedFirstPart}${normalizedSecondPart}`;
 
-  if (rawDigits.length > 3) {
-    return `${rowPrefix}wybijak może mieć maksymalnie 3 cyfry.`;
+  if (rawDigits.length > 5) {
+    return `${rowPrefix}wybijak może mieć maksymalnie 5 cyfr.`;
+  }
+
+  if (rawDigits.length === 5) {
+    if (rawDigits !== '11110') {
+      return `${rowPrefix}format 5-cyfrowy jest zarezerwowany dla wartości 11110.`;
+    }
+    return '';
   }
 
   if (rawDigits.length === 3 && rawDigits[1] !== '0') {
     return `${rowPrefix}przy dwóch wybijakach środkowa cyfra musi być równa 0.`;
+  }
+
+  if (rawDigits.length === 4) {
+    return `${rowPrefix}wybijak ma nieprawidłowy format.`;
   }
 
   const digitFirstPart = rawDigits[0] ?? '';
@@ -3029,7 +3193,7 @@ function getMergeCellValidationCriteria(column) {
     case 'ilosc':
       return `Wymagane pole. Liczba całkowita. Zakres: 1-${maxQuantity}.`;
     case 'wybijak':
-      return `Wymagane pole. Jeden wybijak jako 1, dwa wybijaki jako 102. Każdy wybijak musi mieć 1 cyfrę i być w zakresie 1-${maxPunchCount}.`;
+      return `Wymagane pole. Jeden wybijak jako 1, dwa wybijaki jako 102. Wyjątek: para 10 i 11 jest zapisywana jako 11110.`;
     default:
       return '';
   }
@@ -3290,7 +3454,26 @@ function finishWorkCorrectionEdit(targetRowId = workEditingRowId.value) {
   if (targetRowId !== null && Object.prototype.hasOwnProperty.call(workCorrectionDrafts.value, targetRowId)) {
     commitWorkProgressDraft(targetRowId);
   }
+  const existingTimer = workRowActionLockTimers.get(targetRowId);
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
+  }
+  workRowActionLockUntil.value = {
+    ...workRowActionLockUntil.value,
+    [targetRowId]: Date.now() + 100,
+  };
+  const releaseTimer = window.setTimeout(() => {
+    const nextLocks = { ...workRowActionLockUntil.value };
+    delete nextLocks[targetRowId];
+    workRowActionLockUntil.value = nextLocks;
+    workRowActionLockTimers.delete(targetRowId);
+  }, 100);
+  workRowActionLockTimers.set(targetRowId, releaseTimer);
   workEditingRowId.value = null;
+}
+
+function isWorkRowActionLocked(rowId) {
+  return Object.prototype.hasOwnProperty.call(workRowActionLockUntil.value, rowId);
 }
 
 function handleWorkProgressInputBlur(event, rowId) {
@@ -4571,63 +4754,107 @@ function getConfigStationValueByLength(lengthValue) {
   return '';
 }
 
-function getConfiguredStationValues() {
-  return configStations.value.map((_, index) => String(index + 1));
+function getConfiguredStationValues(allowedStationValues = null) {
+  const configuredValues = configStations.value.map((_, index) => String(index + 1));
+  if (!allowedStationValues) return configuredValues;
+
+  const allowedSet = new Set(allowedStationValues.map((value) => String(value)));
+  return configuredValues.filter((value) => allowedSet.has(value));
+}
+
+function isMergeAutoStationEnabled(stationValue) {
+  return mergeAutoStationEnabled.value[String(stationValue)] !== false;
+}
+
+function toggleMergeAutoStation(stationValue) {
+  const normalizedValue = String(stationValue ?? '').trim();
+  if (!normalizedValue) return;
+
+  const currentlyEnabled = isMergeAutoStationEnabled(normalizedValue);
+  const enabledCount = enabledMergeAutoStationValues.value.length;
+  if (currentlyEnabled && enabledCount <= 1) {
+    mergeAlert.value = {
+      visible: true,
+      message: 'Musi pozostać włączone co najmniej jedno stanowisko do automatycznego przypisywania.',
+    };
+    return;
+  }
+
+  mergeAutoStationEnabled.value = {
+    ...mergeAutoStationEnabled.value,
+    [normalizedValue]: !currentlyEnabled,
+  };
 }
 
 function getStationAutoAssignModeLabel(mode) {
-  if (mode === 'similar-together') return 'bliskich wymiarów razem';
-  if (mode === 'similar-separate') return 'bliskich wymiarów osobno';
+  if (mode === 'similar-together') return 'rozdzielenia bliskich wymiarów';
+  if (mode === 'similar-separate') return 'bliskich wymiarów razem';
   if (mode === 'by-products') return 'produktów';
   return 'ustawień długości';
 }
 
-function buildStationAssignments(rows, mode, getLength, getRowKey) {
+function buildStationAssignments(rows, mode, getLength, getRowKey, allowedStationValues = null, getSectionKey = null) {
   const assignments = new Map();
+  const stationValues = getConfiguredStationValues(allowedStationValues);
+  if (!stationValues.length) return assignments;
 
   if (mode === 'length-ranges') {
     rows.forEach((row) => {
       const station = getConfigStationValueByLength(getLength(row));
       if (station) {
+        if (!stationValues.includes(station)) return;
         assignments.set(getRowKey(row), station);
       }
     });
     return assignments;
   }
 
-  const stationValues = getConfiguredStationValues();
-  if (!stationValues.length) return assignments;
-
   const sortableRows = rows
     .map((row, index) => ({
       row,
       key: getRowKey(row),
       length: getNormalizedLengthValue(getLength(row)),
+      sectionKey: String(getSectionKey ? (getSectionKey(row) ?? '') : ''),
       index,
     }))
     .filter((entry) => entry.length > 0)
-    .sort((left, right) => left.length - right.length || left.index - right.index);
+    .sort((left, right) =>
+      left.sectionKey.localeCompare(right.sectionKey, 'pl', { numeric: true, sensitivity: 'base' }) ||
+      left.length - right.length ||
+      left.index - right.index,
+    );
 
   if (!sortableRows.length) return assignments;
 
-  sortableRows.forEach((entry, index) => {
-    let stationIndex = 0;
-
-    if (mode === 'similar-separate') {
-      stationIndex = index % stationValues.length;
-    } else {
-      stationIndex = Math.min(Math.floor((index * stationValues.length) / sortableRows.length), stationValues.length - 1);
+  const rowsBySection = new Map();
+  sortableRows.forEach((entry) => {
+    const sectionKey = entry.sectionKey || '__default__';
+    if (!rowsBySection.has(sectionKey)) {
+      rowsBySection.set(sectionKey, []);
     }
+    rowsBySection.get(sectionKey).push(entry);
+  });
 
-    assignments.set(entry.key, stationValues[stationIndex]);
+  rowsBySection.forEach((sectionRows) => {
+    sectionRows.forEach((entry, index) => {
+      let stationIndex = 0;
+
+      if (mode === 'similar-together') {
+        stationIndex = index % stationValues.length;
+      } else {
+        stationIndex = Math.min(Math.floor((index * stationValues.length) / sectionRows.length), stationValues.length - 1);
+      }
+
+      assignments.set(entry.key, stationValues[stationIndex]);
+    });
   });
 
   return assignments;
 }
 
-function buildStationAssignmentsByGroup(rows, getRowKey, getGroupKey) {
+function buildStationAssignmentsByGroup(rows, getRowKey, getGroupKey, allowedStationValues = null) {
   const assignments = new Map();
-  const stationValues = getConfiguredStationValues();
+  const stationValues = getConfiguredStationValues(allowedStationValues);
   if (!stationValues.length) return assignments;
 
   const normalizedGroups = [];
@@ -4680,12 +4907,26 @@ function openStationAutoAssignDialog(target) {
 
 function applyMergeStationAssignments(mode) {
   if (!recipeRows.value.length) return;
+  if (!enabledMergeAutoStationValues.value.length) {
+    mergeAlert.value = {
+      visible: true,
+      message: 'Włącz co najmniej jedno stanowisko do automatycznego przypisywania.',
+    };
+    return;
+  }
 
   const allRows = Object.values(mergeRecipeDrafts.value).flat();
   const assignments =
     mode === 'by-products'
-      ? buildStationAssignmentsByGroup(allRows, (row) => row._localId, (row) => row._sourceProductName ?? row.nazwaProduktu)
-      : buildStationAssignments(allRows, mode, (row) => row.dlugosc, (row) => row._localId);
+      ? buildStationAssignmentsByGroup(allRows, (row) => row._localId, (row) => row._sourceProductName ?? row.nazwaProduktu, enabledMergeAutoStationValues.value)
+      : buildStationAssignments(
+          allRows,
+          mode,
+          (row) => row.dlugosc,
+          (row) => row._localId,
+          enabledMergeAutoStationValues.value,
+          (row) => buildPrzekrojValue(row.grubosc, row.szerokosc),
+        );
   let updatedCount = 0;
   let assignedCount = 0;
 
@@ -4744,11 +4985,23 @@ function applyWorkStationAssignments(mode) {
     workUploadMessage.value = 'Brak informacji o produktach źródłowych dla aktualnych wierszy.';
     return;
   }
+  if (!enabledMergeAutoStationValues.value.length) {
+    workUploadError.value = true;
+    workUploadMessage.value = 'Włącz co najmniej jedno stanowisko do automatycznego przypisywania.';
+    return;
+  }
 
   const assignments =
     mode === 'by-products'
-      ? buildStationAssignmentsByGroup(activeWorkRows.value, (row) => row.__clientId, (row) => row.SourceProductName)
-      : buildStationAssignments(activeWorkRows.value, mode, (row) => row.Dlugosc, (row) => row.__clientId);
+      ? buildStationAssignmentsByGroup(activeWorkRows.value, (row) => row.__clientId, (row) => row.SourceProductName, enabledMergeAutoStationValues.value)
+      : buildStationAssignments(
+          activeWorkRows.value,
+          mode,
+          (row) => row.Dlugosc,
+          (row) => row.__clientId,
+          enabledMergeAutoStationValues.value,
+          (row) => getWorkRowPayload(row).Przekroj,
+        );
   let updatedCount = 0;
   let assignedCount = 0;
 
@@ -5392,7 +5645,9 @@ function normalizePrintTextValue(value) {
 
 function normalizeStationValue(value) {
   const normalizedText = String(value ?? '').trim();
+  if (!normalizedText) return '';
   if (isDyszaStationValue(normalizedText)) return SPECIAL_DYSZA_STATION_VALUE;
+  if (normalizedText === '0') return SPECIAL_DYSZA_STATION_VALUE;
   if (normalizedText === '-1') return SPECIAL_DYSZA_STATION_VALUE;
 
   const normalized = normalizedText
@@ -5401,7 +5656,7 @@ function normalizeStationValue(value) {
   if (normalized === '11' || normalized === '21' || normalized === '31') {
     return normalized[0];
   }
-  return normalized === '0' ? '' : normalized;
+  return normalized === '0' ? SPECIAL_DYSZA_STATION_VALUE : normalized;
 }
 
 function normalizeEditableCellValue(column, value) {
@@ -5486,6 +5741,9 @@ function getWybijakValueForStation(stationValue, lengthValue = 0) {
     return distance > 0 && normalizedLength > 0 && normalizedLength < distance;
   });
 
+  if (punchNumbers.length === 2 && isSpecialTenElevenWybijakPair(punchNumbers[0], punchNumbers[1])) {
+    return '11110';
+  }
   if (hasTooShortLengthForDistance) {
     return punchNumbers[0];
   }
@@ -5497,32 +5755,10 @@ function formatWorkWybijakDisplayValue(row) {
   const rawValue = String(row?.Wybijak ?? '').trim();
   if (!rawValue) return '';
   if (rawValue.includes(' i ')) return rawValue;
-  const normalizedRawValue = rawValue.replace(/[^\d]/g, '');
-  if (!normalizedRawValue) return rawValue;
-
-  const normalizedStationValue = normalizeStationValue(row?.Stanowisko);
-  const stationIndex = Number.parseInt(normalizedStationValue, 10) - 1;
-  if (Number.isFinite(stationIndex) && stationIndex >= 0) {
-    const station = configStations.value[stationIndex];
-    const punchNumbers = getConfigStationOrderedPunches(station)
-      .map((punch) => String(punch ?? '').replace(/[^\d]/g, '').trim())
-      .filter(Boolean)
-      .slice(0, 2);
-
-    if (punchNumbers.length === 2 && normalizedRawValue === punchNumbers.join('')) {
-      return `${punchNumbers[0]} i ${punchNumbers[1]}`;
-    }
-  }
-
-  for (const station of configStations.value) {
-    const punchNumbers = getConfigStationOrderedPunches(station)
-      .map((punch) => String(punch ?? '').replace(/[^\d]/g, '').trim())
-      .filter(Boolean)
-      .slice(0, 2);
-
-    if (punchNumbers.length === 2 && normalizedRawValue === punchNumbers.join('')) {
-      return `${punchNumbers[0]} i ${punchNumbers[1]}`;
-    }
+  if (rawValue.replace(/[^\d]/g, '').trim() === '11110') return '11110';
+  const configuredPair = getConfiguredWybijakPair(rawValue, row?.Stanowisko);
+  if (configuredPair) {
+    return `${configuredPair[0]} i ${configuredPair[1]}`;
   }
 
   return rawValue;
@@ -5548,7 +5784,11 @@ function getConfiguredWybijakPair(rawDigits, stationValue = '') {
 
     if (
       punchNumbers.length === 2 &&
-      (normalizedRawDigits === punchNumbers.join('') || normalizedRawDigits === `${punchNumbers[0]}0${punchNumbers[1]}`)
+      (
+        normalizedRawDigits === punchNumbers.join('') ||
+        normalizedRawDigits === `${punchNumbers[0]}0${punchNumbers[1]}` ||
+        (punchNumbers[0] === '10' && punchNumbers[1] === '11' && normalizedRawDigits === '11110')
+      )
     ) {
       return punchNumbers;
     }
@@ -5583,7 +5823,11 @@ function getWybijakInputParts(value, stationValue = '') {
 function buildWybijakValueFromParts(firstPart, secondPart) {
   const first = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
   const second = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
-  if (first && second) return `${first}0${second}`;
+  if (first && second) {
+    if (isSpecialTenElevenWybijakPair(first, second)) return '11110';
+    if (first.length > 1 || second.length > 1) return `${first} i ${second}`;
+    return `${first}0${second}`;
+  }
   return first || second || '';
 }
 
@@ -5708,6 +5952,10 @@ function createMergeDraftRow(productName, sourceRow = {}) {
   const rawQuantity = sourceRow['ilość'] ?? sourceRow.ilosc ?? 0;
   const numericQuantity = Number(String(rawQuantity).replace(',', '.'));
   const baseQuantity = Number.isFinite(numericQuantity) ? numericQuantity : 0;
+  const klasa = sourceRow.Klasa ?? sourceRow.klasa ?? 2;
+  const stanowisko = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
+  const dlugosc = sourceRow['Długość'] ?? sourceRow.dlugosc ?? '';
+  const wybijak = stanowisko ? getWybijakValueForStation(stanowisko, dlugosc) : '';
 
   return {
     _localId: createProductLocalId(),
@@ -5715,41 +5963,47 @@ function createMergeDraftRow(productName, sourceRow = {}) {
     nazwaReceptury: '',
     nazwaProduktu: productName,
     nazwaSkladowej: sourceRow.Nazwa ?? sourceRow.nazwaSkladowej ?? '',
-    dlugosc: sourceRow['Długość'] ?? sourceRow.dlugosc ?? '',
+    dlugosc,
     grubosc: sourceRow['Grubość'] ?? sourceRow.grubosc ?? '',
     szerokosc: sourceRow['Szerokość'] ?? sourceRow.szerokosc ?? '',
     material: sourceRow['Materiał'] ?? sourceRow.material ?? '',
     idReceptury: sourceRow.idReceptury ?? 26,
     idSkladowej: sourceRow.idSkladowej ?? 0,
-    wybijak: sourceRow.Wybijak ?? sourceRow.wybijak ?? 0,
+    wybijak,
     grupa: '',
     priorytet: '',
     ilosc: baseQuantity,
     iloscWykonana: sourceRow.iloscWykonana ?? 0,
-    Klasa: sourceRow.Klasa ?? sourceRow.klasa ?? 2,
-    Stanowisko: normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko),
+    Klasa: klasa,
+    klasa,
+    Stanowisko: stanowisko,
     Informacje: sourceRow.Informacje ?? 'Kopia tymczasowa',
     TekstDoDruku: normalizePrintTextValue(sourceRow.Kod || sourceRow.TekstDoDruku || sourceRow.nazwaSkladowej || sourceRow.Nazwa || ''),
   };
 }
 
 function createRecipePreviewDraftRow(sourceRow = {}) {
+  const klasa = sourceRow.Klasa ?? sourceRow.klasa ?? 0;
+  const stanowisko = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
+  const dlugosc = sourceRow.dlugosc ?? '';
+  const wybijak = stanowisko ? getWybijakValueForStation(stanowisko, dlugosc) : (sourceRow.wybijak ?? '');
   return {
     _localId: createProductLocalId(),
     nazwaSkladowej: sourceRow.nazwaSkladowej ?? '',
-    dlugosc: sourceRow.dlugosc ?? '',
+    dlugosc,
     grubosc: sourceRow.grubosc ?? '',
     szerokosc: sourceRow.szerokosc ?? '',
     material: sourceRow.material ?? '',
     idReceptury: sourceRow.idReceptury ?? 0,
     idSkladowej: sourceRow.idSkladowej ?? 0,
-    wybijak: sourceRow.wybijak ?? '',
+    wybijak,
     grupa: '',
     priorytet: '',
     ilosc: sourceRow.ilosc ?? 0,
     iloscWykonana: sourceRow.iloscWykonana ?? 0,
-    Klasa: sourceRow.Klasa ?? sourceRow.klasa ?? 0,
-    Stanowisko: normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko),
+    Klasa: klasa,
+    klasa,
+    Stanowisko: stanowisko,
     Informacje: sourceRow.Informacje ?? '',
     TekstDoDruku: normalizePrintTextValue(sourceRow.TekstDoDruku ?? ''),
   };
@@ -5996,8 +6250,10 @@ function normalizeProductRows(fileName, headers, rows) {
       const width = getCellValue(sourceRow, ['Szerokość', 'Sz', 'SZER. [mm]', 'SZEROKOŚĆ', 'SZEROKOSC', 'Szerokosc']) || rowValues[4] || '';
       const material = getCellValue(sourceRow, ['Materiał', 'MATERIAŁ', 'MATERIAL', 'OPIS', 'gatunek drewna']) || rowValues[7] || '';
       const code = normalizePrintTextValue(getCellValue(sourceRow, ['Kod', 'NR CZĘŚCI', 'NR CZESCI', 'Nadruk']) || rowValues[1] || rowValues[0] || '');
-      const klasa = normalizeDefaultClassValue(getCellValue(sourceRow, ['Klasa', 'KLASA']));
-      const stanowisko = getCellValue(sourceRow, ['Stanowisko', 'STANOWISKO']) || '';
+      const klasa = normalizeDefaultClassValue(getCellValue(sourceRow, ['Klasa', 'KLASA', 'Klasa jakosci', 'KLASA JAKOSCI']));
+      const stanowisko = getCellValue(sourceRow, ['Stanowisko', 'STANOWISKO']) ?? '';
+      const normalizedStation = normalizeStationValue(stanowisko);
+      const computedWybijak = normalizedStation ? getWybijakValueForStation(normalizedStation, length) : '';
 
       return {
         Nazwa: name,
@@ -6010,8 +6266,8 @@ function normalizeProductRows(fileName, headers, rows) {
         Grupa: '',
         Priorytet: '',
         'ilość': quantity,
-        Wybijak: getCellValue(sourceRow, ['Wybijak']) || 0,
-        Stanowisko: normalizeStationValue(stanowisko),
+        Wybijak: computedWybijak || getCellValue(sourceRow, ['Wybijak']) || 0,
+        Stanowisko: normalizedStation,
         _sourceFile: fileName,
         _rowIndex: index,
         _localId: createProductLocalId(),
@@ -7498,8 +7754,9 @@ function updateRecipePreviewCell(localId, column, value) {
 
   if (column === 'dlugosc') {
     row[column] = normalizedValue;
-    if (row.Stanowisko) {
-      row.wybijak = getWybijakValueForStation(row.Stanowisko, normalizedValue);
+    const stanowisko = normalizeStationValue(row.Stanowisko ?? row.stanowisko);
+    if (stanowisko) {
+      row.wybijak = getWybijakValueForStation(stanowisko, normalizedValue);
     }
     return;
   }
@@ -7875,8 +8132,9 @@ function updateMergeRecipeCell(productName, localId, column, value) {
 
   if (column === 'dlugosc') {
     row[column] = normalizedValue;
-    if (row.Stanowisko) {
-      row.wybijak = getWybijakValueForStation(row.Stanowisko, normalizedValue);
+    const stanowisko = normalizeStationValue(row.Stanowisko ?? row.stanowisko);
+    if (stanowisko) {
+      row.wybijak = getWybijakValueForStation(stanowisko, normalizedValue);
     }
     return;
   }
@@ -8355,6 +8613,7 @@ const WorkTable = defineComponent({
                                       class: 'edit-input work-cell-input wybijak-part-input',
                                       value: firstPart,
                                       inputmode: 'numeric',
+                                      maxLength: 2,
                                       onInput: (event) => updateWorkWybijakPart(row.__clientId, 0, event.target.value),
                                     }),
                                     h('span', { class: 'wybijak-separator' }, 'i'),
@@ -8362,6 +8621,7 @@ const WorkTable = defineComponent({
                                       class: 'edit-input work-cell-input wybijak-part-input',
                                       value: secondPart,
                                       inputmode: 'numeric',
+                                      maxLength: 2,
                                       onInput: (event) => updateWorkWybijakPart(row.__clientId, 1, event.target.value),
                                     }),
                                   ]),
@@ -8502,7 +8762,7 @@ const WorkTable = defineComponent({
                                 class: ['tool-btn compact', row.__disabled ? 'primary' : ''],
                                 type: 'button',
                                 title: row.__disabled ? 'Włącz wiersz do wysyłki' : 'Wyłącz wiersz z wysyłki',
-                                disabled: isWorkCorrectionSaving.value || isWorkEditPreparing.value,
+                                disabled: isWorkCorrectionSaving.value || isWorkEditPreparing.value || isWorkRowActionLocked(row.__clientId),
                                 onClick: () => toggleWorkRowDisabled(row.__clientId),
                               },
                               row.__disabled ? 'Włącz' : 'Wyłącz',
@@ -8614,7 +8874,7 @@ const RecipePreviewTable = defineComponent({
                                       class: 'edit-input recipe-preview-input wybijak-part-input',
                                       value: firstPart,
                                       inputmode: 'numeric',
-                                      maxlength: 1,
+                                      maxLength: 2,
                                       onInput: (event) => updateRecipePreviewWybijakPart(row._localId, 0, event.target.value),
                                     }),
                                     h('span', { class: 'wybijak-separator' }, 'i'),
@@ -8622,7 +8882,7 @@ const RecipePreviewTable = defineComponent({
                                       class: 'edit-input recipe-preview-input wybijak-part-input',
                                       value: secondPart,
                                       inputmode: 'numeric',
-                                      maxlength: 1,
+                                      maxLength: 2,
                                       onInput: (event) => updateRecipePreviewWybijakPart(row._localId, 1, event.target.value),
                                     }),
                                   ]),
