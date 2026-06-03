@@ -120,6 +120,12 @@ function normalizeCellValue(_column, value) {
   return String(value);
 }
 
+function normalizeMaterialValue(value) {
+  const normalizedValue = String(value ?? '').trim();
+  if (!normalizedValue) return '';
+  return normalizedValue.charAt(0).toUpperCase() + normalizedValue.slice(1).toLowerCase();
+}
+
 function resolveHeaderName(headers, aliases) {
   return headers.find((header) => aliases.includes(header));
 }
@@ -530,7 +536,7 @@ function buildWorkMainUploadSql(rows) {
   const valuesSql = rows
     .map((row, index) => `(
 ${index + 1},
-${toSqlLiteral(row.Material)},
+${toSqlLiteral(normalizeMaterialValue(row.Material))},
 ${toSqlLiteral(row.Przekroj)},
 ${toSqlNumber(row.Grubosc)},
 ${toSqlNumber(row.Szerokosc)},
@@ -764,7 +770,7 @@ function buildWorkMainSaveSql(rows) {
   const valuesSql = rows
     .map((row, index) => `(
 ${toSqlNumber(row.id, index + 1)},
-${toSqlLiteral(row.Material)},
+${toSqlLiteral(normalizeMaterialValue(row.Material))},
 ${toSqlLiteral(row.Przekroj)},
 ${toSqlNumber(row.Grubosc)},
 ${toSqlNumber(row.Szerokosc)},
@@ -1810,7 +1816,7 @@ EXEC sp_executesql @sql;`;
             const stanowiskoValue = parseNullableInteger(parts[14]);
             return {
               id: parseNullableInteger(parts[0]),
-              Material: parts[1] || '',
+              Material: normalizeMaterialValue(parts[1] || ''),
               Przekroj: parts[2] || '',
               Grubosc: parseNullableInteger(parts[3]),
               Szerokosc: parseNullableInteger(parts[4]),

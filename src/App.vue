@@ -2259,7 +2259,7 @@ const workColumnLabels = {
   Dlugosc: 'Długość',
   Klasa: 'Klasa',
   Stanowisko: 'Stanowisko',
-  Progress: 'Progress',
+  Progress: 'Progress (Wycięte/Cel)',
   Wybijak: 'Wybijak',
   TekstDoDruku: 'Tekst do druku',
   Sztuk: 'Ilość',
@@ -2961,7 +2961,10 @@ const filteredWorkRows = computed(() => {
 
   return workRows.value.filter((row, index) => {
     if (row?.__disabled) return false;
-    return getWorkRowPayload(row, index).Przekroj === workPrzekrojFilter.value;
+    if (row?.__clientId && row.__clientId === workEditingRowId.value) return true;
+    const payload = getWorkRowPayload(row, index);
+    if (row?.__isLocalDraft && !payload.Przekroj) return true;
+    return payload.Przekroj === workPrzekrojFilter.value;
   });
 });
 const overallWorkDone = computed(() =>
@@ -3308,7 +3311,7 @@ function getWorkRowPayload(row, index = 0) {
     SourceProductName: String(row?.SourceProductName ?? '').trim(),
     Nazwa: String(row?.Nazwa ?? '').trim(),
     NazwaRec: String(row?.NazwaRec ?? '').trim(),
-    Material: String(row?.Material ?? '').trim(),
+    Material: normalizeMaterialValue(row?.Material),
     Przekroj: buildPrzekrojValue(grubosc, szerokosc),
     Grubosc: grubosc,
     Szerokosc: szerokosc,
@@ -3705,7 +3708,7 @@ function createWorkRowFromProductRow(sourceRow = {}, rowId = getNextWorkRowId())
     __isLocalDraft: true,
     SourceProductName: sourceRow._sourceFile ?? sourceRow.SourceProductName ?? '',
     Nazwa: sourceRow.Nazwa ?? sourceRow.nazwaSkladowej ?? '',
-    Material: sourceRow['Materiał'] ?? sourceRow.material ?? '',
+    Material: normalizeMaterialValue(sourceRow['Materiał'] ?? sourceRow.material ?? ''),
     Przekroj: buildPrzekrojValue(thickness, width),
     Grubosc: thickness,
     Szerokosc: width,
@@ -5711,6 +5714,9 @@ function normalizeEditableCellValue(column, value) {
   if (column === 'Kod' || column === 'TekstDoDruku') {
     return normalizePrintTextValue(value);
   }
+  if (column === 'Materiał' || column === 'Material' || column === 'material') {
+    return normalizeMaterialValue(value);
+  }
   if (column === 'Grupa' || column === 'grupa') {
     return normalizeGroupValue(value);
   }
@@ -5721,6 +5727,12 @@ function normalizeEditableCellValue(column, value) {
     return normalizeStationValue(value);
   }
   return value;
+}
+
+function normalizeMaterialValue(value) {
+  const normalizedValue = String(value ?? '').trim();
+  if (!normalizedValue) return '';
+  return normalizedValue.charAt(0).toUpperCase() + normalizedValue.slice(1).toLowerCase();
 }
 
 function getDropdownOptions(column) {
@@ -6027,7 +6039,7 @@ function createMergeDraftRow(productName, sourceRow = {}) {
     dlugosc,
     grubosc: sourceRow['Grubość'] ?? sourceRow.grubosc ?? '',
     szerokosc: sourceRow['Szerokość'] ?? sourceRow.szerokosc ?? '',
-    material: sourceRow['Materiał'] ?? sourceRow.material ?? '',
+    material: normalizeMaterialValue(sourceRow['Materiał'] ?? sourceRow.material ?? ''),
     idReceptury: sourceRow.idReceptury ?? 26,
     idSkladowej: sourceRow.idSkladowej ?? 0,
     wybijak,
@@ -6054,7 +6066,7 @@ function createRecipePreviewDraftRow(sourceRow = {}) {
     dlugosc,
     grubosc: sourceRow.grubosc ?? '',
     szerokosc: sourceRow.szerokosc ?? '',
-    material: sourceRow.material ?? '',
+    material: normalizeMaterialValue(sourceRow.material ?? ''),
     idReceptury: sourceRow.idReceptury ?? 0,
     idSkladowej: sourceRow.idSkladowej ?? 0,
     wybijak,
@@ -6370,7 +6382,9 @@ function normalizeProductRows(fileName, headers, rows) {
       const length = getCellValue(sourceRow, ['Długość', 'Dł', 'DŁ', 'Dł. [mm]', 'DŁ. [mm]', 'DL', 'DL. [mm]', 'DŁUGOŚĆ', 'DLUGOSC', 'Dlugosc']) || rowValues[2] || '';
       const thickness = getCellValue(sourceRow, ['Grubość', 'GR.', 'GR. [mm]', 'Grubosc']) || rowValues[3] || '';
       const width = getCellValue(sourceRow, ['Szerokość', 'Sz', 'SZER. [mm]', 'SZEROKOŚĆ', 'SZEROKOSC', 'Szerokosc']) || rowValues[4] || '';
-      const material = getCellValue(sourceRow, ['Materiał', 'MATERIAŁ', 'MATERIAL', 'OPIS', 'gatunek drewna']) || rowValues[7] || '';
+      const material = normalizeMaterialValue(
+        getCellValue(sourceRow, ['Materiał', 'MATERIAŁ', 'MATERIAL', 'OPIS', 'gatunek drewna']) || rowValues[7] || '',
+      );
       const code = normalizePrintTextValue(getCellValue(sourceRow, ['Kod', 'NR CZĘŚCI', 'NR CZESCI', 'Nadruk']) || rowValues[1] || rowValues[0] || '');
       const klasa = normalizeDefaultClassValue(getCellValue(sourceRow, ['Klasa', 'KLASA', 'Klasa jakosci', 'KLASA JAKOSCI']));
       const stanowisko = getCellValue(sourceRow, ['Stanowisko', 'STANOWISKO']) ?? '';
@@ -8329,7 +8343,7 @@ async function loadRecipeToWorkMain() {
       Kod: row.Kod || '',
       SourceProductName: row.nazwaProduktu || row.SourceProductName || '',
       Nazwa: row.nazwaSkladowej || row.Nazwa || row.nazwaProduktu || row.SourceProductName || '',
-      Material: row.material || row.Material,
+      Material: normalizeMaterialValue(row.material || row.Material),
       Przekroj: buildPrzekrojValue(row.grubosc || row.gr || 0, row.szerokosc || row.szer || 0),
       Grubosc: normalizeWorkCorrectionValue(row.grubosc || row.gr || 0),
       Szerokosc: normalizeWorkCorrectionValue(row.szerokosc || row.szer || 0),
