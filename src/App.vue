@@ -1619,7 +1619,7 @@
                       <span class="work-recipe-trigger-icon" aria-hidden="true">▾</span>
                     </button>
                     <button
-                      class="tool-btn primary work-recipe-upload-btn"
+                      class="tool-btn compact work-recipe-upload-btn"
                       :disabled="!selectedRecipe || workEditingRowId !== null || isWorkCorrectionSaving"
                       @click="loadRecipeToWorkMain"
                     >
@@ -1793,7 +1793,7 @@
                     Porzuć zmiany
                   </button>
                   <button
-                    class="tool-btn compact work-table-save-btn"
+                    class="tool-btn compact primary work-table-save-btn"
                     :disabled="!hasPendingWorkChanges || isWorkCorrectionSaving || isWorkEditPreparing"
                     @click="saveWorkTable"
                   >
