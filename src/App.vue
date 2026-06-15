@@ -1181,15 +1181,16 @@
                             <td class="recipe-index-column">{{ getMergeRecipeRowDisplayIndex(row) }}</td>
                             <td v-for="column in mergeRecipeColumns" :key="`${group.productName}-${row.idSkladowej}-${column}`">
                               <div
-                                v-if="isMergeProductEditMode(group.productName) && (isDropdownColumn(column) || isStationColumn(column))"
+                                v-if="isMergeProductEditMode(group.productName) && (isDropdownColumn(column) || isStationColumn(column) || isPunchActionColumn(column))"
                                 class="cell-edit-with-warning"
                               >
                                 <select
+                                  :key="isPunchActionColumn(column) ? `${row._localId}-${column}-${row[column] ?? ''}` : `${row._localId}-${column}`"
                                   class="edit-input"
                                   :value="row[column] ?? ''"
                                   @focus="mergeEditingCell = `${row._localId}:${column}`"
                                   @blur="mergeEditingCell = null"
-                                  @input="updateMergeRecipeCell(group.productName, row._localId, column, $event.target.value)"
+                                  @change="updateMergeRecipeCell(group.productName, row._localId, column, $event.target.value)"
                                 >
                                   <option value=""></option>
                                   <option
@@ -1203,13 +1204,14 @@
                                 <span
                                   v-if="getMergeCellValidationMessage(row, column)"
                                   class="cell-warning-indicator inline-warning-indicator"
-                                  :title="getMergeCellValidationCriteria(column)"
+                                  :title="getMergeCellValidationMessage(row, column) || getMergeCellValidationCriteria(column)"
                                 >
                                   !
                                 </span>
                               </div>
                               <div
                                 v-else-if="isMergeProductEditMode(group.productName) && column === 'wybijak'"
+                                :key="`${row._localId}-${row.wybijak}-${row.DzialanieWybijakow}`"
                                 class="wybijak-edit-group"
                                 @focusin="mergeEditingCell = `${row._localId}:${column}`"
                                 @focusout="mergeEditingCell = null"
@@ -1241,7 +1243,7 @@
                                 <span
                                   v-if="getRecipeWybijakValidationIssue(row)"
                                   class="cell-warning-indicator"
-                                  :title="getMergeCellValidationCriteria(column)"
+                                  :title="getMergeCellValidationMessage(row, column) || getMergeCellValidationCriteria(column)"
                                 >
                                   !
                                 </span>
@@ -1261,7 +1263,7 @@
                                 <span
                                   v-if="getMergeCellValidationMessage(row, column)"
                                   class="cell-warning-indicator inline-warning-indicator"
-                                  :title="getMergeCellValidationCriteria(column)"
+                                  :title="getMergeCellValidationMessage(row, column) || getMergeCellValidationCriteria(column)"
                                 >
                                   !
                                 </span>
@@ -1271,7 +1273,7 @@
                                 <span
                                   v-if="getRecipeWybijakValidationIssue(row)"
                                   class="cell-warning-indicator"
-                                  :title="getMergeCellValidationCriteria(column)"
+                                  :title="getMergeCellValidationMessage(row, column) || getMergeCellValidationCriteria(column)"
                                 >
                                   !
                                 </span>
@@ -1280,7 +1282,7 @@
                                 <span>{{ row[column] ?? '' }}</span>
                                 <span
                                   class="cell-warning-indicator"
-                                  :title="getMergeCellValidationCriteria(column)"
+                                  :title="getMergeCellValidationMessage(row, column) || getMergeCellValidationCriteria(column)"
                                 >
                                   !
                                 </span>
@@ -2048,6 +2050,14 @@ const tabs = [
   { id: 'merge', label: '2. Scal produkty' },
   { id: 'work', label: '3. Aktualnie cięte' },
 ];
+const PUNCH_ACTION_SINGLE = 'pojedynczo';
+const PUNCH_ACTION_SYNC = 'synchronicznie';
+const PUNCH_ACTION_ALTERNATING = 'naprzemiennie';
+const PUNCH_ACTION_OPTIONS = [
+  { value: PUNCH_ACTION_SINGLE, label: 'Pojedynczo' },
+  { value: PUNCH_ACTION_SYNC, label: 'Synchronicznie' },
+  { value: PUNCH_ACTION_ALTERNATING, label: 'Naprzemiennie' },
+];
 const configTabs = [
   { id: 'stations', label: 'Stanowiska' },
   { id: 'distances', label: 'Odległości' },
@@ -2164,6 +2174,7 @@ const recipeColumns = [
   'idReceptury',
   'idSkladowej',
   'wybijak',
+  'DzialanieWybijakow',
   'grupa',
   'priorytet',
   'ilosc',
@@ -2183,6 +2194,7 @@ const mergeRecipeColumns = [
   'klasa',
   'ilosc',
   'Stanowisko',
+  'DzialanieWybijakow',
   'wybijak',
 ];
 const recipeColumnLabels = {
@@ -2195,6 +2207,7 @@ const recipeColumnLabels = {
   idReceptury: 'ID receptury',
   idSkladowej: 'ID składowej',
   wybijak: 'Wybijak',
+  DzialanieWybijakow: 'Działanie Wybijaków',
   Stanowisko: 'Stanowisko',
   grupa: 'Grupa',
   priorytet: 'Priorytet',
@@ -2218,6 +2231,7 @@ const RECIPE_ROW_EXPORT_COLUMNS = [
   'idReceptury',
   'idSkladowej',
   'wybijak',
+  'DzialanieWybijakow',
   'grupa',
   'priorytet',
   'ilosc',
@@ -2235,6 +2249,7 @@ const workColumns = [
   'Material',
   'Klasa',
   'Stanowisko',
+  'DzialanieWybijakow',
   'Wybijak',
   'Progress',
 ];
@@ -2246,6 +2261,7 @@ const savedWorkPreviewColumns = [
   'Szerokosc',
   'Material',
   'TekstDoDruku',
+  'DzialanieWybijakow',
   'Wybijak',
   'Sztuk',
   'ProgressLabel',
@@ -2259,6 +2275,7 @@ const workColumnLabels = {
   Dlugosc: 'Długość',
   Klasa: 'Klasa',
   Stanowisko: 'Stanowisko',
+  DzialanieWybijakow: 'Działanie Wybijaków',
   Progress: 'Progress (Wycięte/Cel)',
   Wybijak: 'Wybijak',
   TekstDoDruku: 'Tekst do druku',
@@ -3078,6 +3095,22 @@ function normalizeWybijakPartInputValue(value) {
     .slice(0, 2);
 }
 
+function buildSyncWybijakValue(firstPart, secondPart) {
+  const first = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
+  const second = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
+  if (!first || !second) return '';
+  if (first.length === 1 && second.length === 1) return `${first}0${second}`;
+  return `${first}${second}`;
+}
+
+function buildAlternatingWybijakValue(firstPart, secondPart) {
+  const syncValue = buildSyncWybijakValue(firstPart, secondPart);
+  if (!syncValue) return '';
+  const parsed = Number.parseInt(syncValue, 10);
+  if (!Number.isFinite(parsed)) return syncValue;
+  return String(parsed + 10000);
+}
+
 function isSpecialTenElevenWybijakPair(firstPart, secondPart) {
   return String(firstPart ?? '').trim() === '10' && String(secondPart ?? '').trim() === '11';
 }
@@ -3087,25 +3120,62 @@ function getRecipeWybijakValidationIssue(row, rowIndex = null) {
   const rowPrefix = rowIndex === null ? '' : `Wiersz ${rowIndex + 1}: `;
   const sourceRow = row || {};
   const rawValue = String(sourceRow.wybijak ?? sourceRow.Wybijak ?? '').trim();
-  if (isDyszaStationValue(sourceRow.Stanowisko)) {
+  const normalizedRawDigits = String(rawValue ?? '').replace(/[^\d]/g, '').trim();
+  const normalizedStationValue = normalizeStationValue(sourceRow.Stanowisko);
+
+  if (normalizedStationValue === SPECIAL_DYSZA_STATION_VALUE) {
     return rawValue === SPECIAL_DYSZA_WYBIJAK_VALUE ? '' : `${rowPrefix}dla stanowiska Dysza wybijak musi mieć wartość 1.`;
   }
   const [firstPart, secondPart] = getWybijakInputParts(rawValue, sourceRow.Stanowisko);
   const normalizedFirstPart = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
   const normalizedSecondPart = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
+  const normalizedAction = getResolvedPunchAction(
+    sourceRow.DzialanieWybijakow || inferPunchActionFromWybijak(sourceRow.Stanowisko, sourceRow.dlugosc ?? sourceRow.Dlugosc, rawValue),
+    sourceRow.Stanowisko,
+    sourceRow.dlugosc ?? sourceRow.Dlugosc,
+  );
+  const actionEncodedDigits = normalizedSecondPart
+    ? buildWybijakValueFromParts(normalizedFirstPart, normalizedSecondPart, normalizedAction)
+    : normalizedFirstPart;
+  const rawDigits = actionEncodedDigits || normalizedRawDigits;
 
   if (!normalizedFirstPart && !normalizedSecondPart) {
     return `${rowPrefix}wybijak jest wymagany.`;
   }
 
+  if (rawDigits.length > 5) {
+    return `${rowPrefix}wybijak może mieć maksymalnie 5 cyfr.`;
+  }
+
+  if (normalizedStationValue) {
+    const stationPunchNumbers = getStationPunchNumbers(normalizedStationValue);
+    if (stationPunchNumbers.length) {
+      for (const punchNumber of stationPunchNumbers.slice(0, 2)) {
+        if (String(punchNumber ?? '').trim() === '0' || Number(punchNumber) > maxPunchCount) {
+          return `${rowPrefix}wybijak w konfiguracji stanowiska musi być w zakresie 1-${maxPunchCount}.`;
+        }
+      }
+
+      if (stationPunchNumbers.length === 1) {
+        return rawDigits === String(stationPunchNumbers[0] ?? '').trim()
+          ? ''
+          : `${rowPrefix}wybijak nie zgadza się z konfiguracją stanowiska ${normalizedStationValue}.`;
+      }
+
+      if (
+        getAcceptedWybijakValuesForPunchPair(stationPunchNumbers[0], stationPunchNumbers[1]).has(rawDigits) ||
+        getAcceptedWybijakValuesForPunchPair(stationPunchNumbers[0], stationPunchNumbers[1]).has(normalizedRawDigits)
+      ) {
+        return '';
+      }
+
+      return `${rowPrefix}wybijak nie zgadza się z konfiguracją stanowiska ${normalizedStationValue}.`;
+    }
+  }
+
   if (normalizedSecondPart) {
     if (!normalizedFirstPart) {
       return `${rowPrefix}wybijak musi mieć dwie poprawne wartości.`;
-    }
-    if (!isSpecialTenElevenWybijakPair(normalizedFirstPart, normalizedSecondPart)) {
-      if (normalizedFirstPart.length > 1 || normalizedSecondPart.length > 1) {
-        return `${rowPrefix}tylko para 10 i 11 może mieć dwucyfrowe wartości.`;
-      }
     }
     if (normalizedFirstPart === '0' || Number(normalizedFirstPart) > maxPunchCount) {
       return `${rowPrefix}pierwszy wybijak musi być w zakresie 1-${maxPunchCount}.`;
@@ -3116,27 +3186,6 @@ function getRecipeWybijakValidationIssue(row, rowIndex = null) {
     return '';
   }
 
-  const rawDigits = `${normalizedFirstPart}${normalizedSecondPart}`;
-
-  if (rawDigits.length > 5) {
-    return `${rowPrefix}wybijak może mieć maksymalnie 5 cyfr.`;
-  }
-
-  if (rawDigits.length === 5) {
-    if (rawDigits !== '11110') {
-      return `${rowPrefix}format 5-cyfrowy jest zarezerwowany dla wartości 11110.`;
-    }
-    return '';
-  }
-
-  if (rawDigits.length === 3 && rawDigits[1] !== '0') {
-    return `${rowPrefix}przy dwóch wybijakach środkowa cyfra musi być równa 0.`;
-  }
-
-  if (rawDigits.length === 4) {
-    return `${rowPrefix}wybijak ma nieprawidłowy format.`;
-  }
-
   if (rawDigits.length <= 2) {
     if (rawDigits === '0' || Number(rawDigits) > maxPunchCount) {
       return `${rowPrefix}wybijak musi być w zakresie 1-${maxPunchCount}.`;
@@ -3144,18 +3193,7 @@ function getRecipeWybijakValidationIssue(row, rowIndex = null) {
     return '';
   }
 
-  const digitFirstPart = rawDigits[0] ?? '';
-  const digitSecondPart = rawDigits[2] ?? '';
-
-  if (digitFirstPart === '0' || Number(digitFirstPart) > maxPunchCount) {
-    return `${rowPrefix}pierwszy wybijak musi być w zakresie 1-${maxPunchCount}.`;
-  }
-
-  if (digitSecondPart === '0' || Number(digitSecondPart) > maxPunchCount) {
-    return `${rowPrefix}drugi wybijak musi być w zakresie 1-${maxPunchCount}.`;
-  }
-
-  return '';
+  return `${rowPrefix}wybijak ma nieprawidłowy format.`;
 }
 
 function getRecipePreviewWybijakValidationError(rows = []) {
@@ -3177,6 +3215,7 @@ function getMergeCellValidationMessage(row, column) {
     dlugosc: ['Długość', 'Długość: nieprawidłowy format'],
     grubosc: ['Grubość', 'Grubość: nieprawidłowy format'],
     szerokosc: ['Szerokość', 'Szerokość: nieprawidłowy format'],
+    DzialanieWybijakow: ['Działanie Wybijaków'],
     ilosc: ['Ilość', 'Ilość: nieprawidłowy format', 'Ilość >'],
   };
 
@@ -3193,6 +3232,11 @@ function getMergeCellValidationMessage(row, column) {
     return matchedMessage.replace(': nieprawidłowy format', ' musi być liczbą całkowitą.');
   }
 
+  if (column === 'DzialanieWybijakow') {
+    const wybijakIssue = getRecipeWybijakValidationIssue(row);
+    if (wybijakIssue) return wybijakIssue;
+  }
+
   if (column === 'ilosc' && matchedMessage.startsWith('Ilość > ')) {
     return matchedMessage;
   }
@@ -3202,8 +3246,13 @@ function getMergeCellValidationMessage(row, column) {
   }
 
   const expectedLabel = expectedLabels[0];
-  if (!expectedLabel) return '';
-  return `${expectedLabel} jest wymagane.`;
+  if (expectedLabel) return `${expectedLabel} jest wymagane.`;
+
+  if (column === 'DzialanieWybijakow') {
+    return getRecipeWybijakValidationIssue(row);
+  }
+
+  return '';
 }
 
 function getMergeCellValidationCriteria(column) {
@@ -3223,10 +3272,12 @@ function getMergeCellValidationCriteria(column) {
       return 'Wymagane pole. Liczba całkowita.';
     case 'szerokosc':
       return 'Wymagane pole. Liczba całkowita.';
+    case 'DzialanieWybijakow':
+      return 'Wymagane pole. Wybierz działanie wybijaków.';
     case 'ilosc':
       return `Wymagane pole. Liczba całkowita. Zakres: 1-${maxQuantity}.`;
     case 'wybijak':
-      return `Wymagane pole. Jeden wybijak jako 1, dwa wybijaki jako 102. Wyjątek: para 10 i 11 jest zapisywana jako 11110.`;
+      return 'Wymagane pole. Pojedynczo zapisuje pierwszy wybijak stanowiska, synchronicznie zapisuje parę wybijaków, a naprzemiennie dodaje 10000 do wartości synchronicznej.';
     default:
       return '';
   }
@@ -3285,7 +3336,7 @@ function parsePrzekrojValue(przekroj) {
   };
 }
 
-function resolveWorkWybijakValue(stanowisko, dlugosc, wybijak) {
+function resolveWorkWybijakValue(stanowisko, dlugosc, wybijak, actionValue = '') {
   const explicitWybijak = normalizeWorkWybijakValue(wybijak);
   if (explicitWybijak !== 0) return explicitWybijak;
 
@@ -3295,7 +3346,7 @@ function resolveWorkWybijakValue(stanowisko, dlugosc, wybijak) {
   const normalizedLength = normalizeWorkCorrectionValue(dlugosc);
   if (!normalizedStation || !normalizedLength) return explicitWybijak;
 
-  return normalizeWorkWybijakValue(getWybijakValueForStation(normalizedStation, normalizedLength));
+  return normalizeWorkWybijakValue(getWybijakValueForStation(normalizedStation, normalizedLength, actionValue));
 }
 
 function getWorkRowPayload(row, index = 0) {
@@ -3305,7 +3356,12 @@ function getWorkRowPayload(row, index = 0) {
   const sztuk = normalizeWorkCorrectionValue(row?.Sztuk);
   const dlugosc = normalizeWorkCorrectionValue(row?.Dlugosc);
   const stanowisko = normalizeStationValue(row?.Stanowisko ?? row?.stanowisko);
-  const wybijak = resolveWorkWybijakValue(stanowisko, dlugosc, row?.Wybijak);
+  const dzialanieWybijakow = getResolvedPunchAction(
+    row?.DzialanieWybijakow || inferPunchActionFromWybijak(stanowisko, dlugosc, row?.Wybijak),
+    stanowisko,
+    dlugosc,
+  );
+  const wybijak = resolveWorkWybijakValue(stanowisko, dlugosc, row?.Wybijak, dzialanieWybijakow);
   return {
     id: normalizeWorkCorrectionValue(row?.id || index + 1),
     SourceProductName: String(row?.SourceProductName ?? '').trim(),
@@ -3319,6 +3375,7 @@ function getWorkRowPayload(row, index = 0) {
     Sztuk: sztuk,
     WykonaneSztuki: normalizeWorkCorrectionValue(row?.WykonaneSztuki),
     Wybijak: wybijak,
+    DzialanieWybijakow: dzialanieWybijakow,
     TekstDoDruku: normalizePrintTextValue(row?.TekstDoDruku ?? ''),
     Grupa: normalizeGroupValue(row?.Grupa ?? row?.grupa ?? ''),
     Priorytet: normalizePriorityValue(row?.Priorytet ?? row?.priorytet ?? ''),
@@ -3382,6 +3439,7 @@ function createEmptyWorkRow(rowId = getNextWorkRowId()) {
     Klasa: 2,
     zliczonaIloscIn: 0,
     Stanowisko: '',
+    DzialanieWybijakow: '',
   });
 }
 
@@ -3526,12 +3584,21 @@ function updateWorkCell(rowId, column, value) {
 
   if (isStationColumn(column)) {
     row[column] = normalizeStationValue(value);
-    row.Wybijak = getWybijakValueForStation(row[column], row.Dlugosc);
+    row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, row[column], row.Dlugosc);
+    row.Wybijak = getWybijakValueForStation(row[column], row.Dlugosc, row.DzialanieWybijakow);
+    return;
+  }
+
+  if (isPunchActionColumn(column)) {
+    row[column] = normalizePunchActionValue(value);
+    if (row.Stanowisko) {
+      row.Wybijak = getWybijakValueForStation(row.Stanowisko, row.Dlugosc, row.DzialanieWybijakow);
+    }
     return;
   }
 
   if (column === 'Wybijak') {
-    row[column] = buildWybijakValueFromParts(...getWybijakInputParts(value, row.Stanowisko));
+    row[column] = buildWybijakValueFromParts(...getWybijakInputParts(value, row.Stanowisko), row.DzialanieWybijakow);
     return;
   }
 
@@ -3544,7 +3611,8 @@ function updateWorkCell(rowId, column, value) {
       row.zliczonaIloscIn = row.Sztuk;
     }
     if (column === 'Dlugosc' && row.Stanowisko) {
-      row.Wybijak = getWybijakValueForStation(row.Stanowisko, row.Dlugosc);
+      row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, row.Stanowisko, row.Dlugosc);
+      row.Wybijak = getWybijakValueForStation(row.Stanowisko, row.Dlugosc, row.DzialanieWybijakow);
     }
     return;
   }
@@ -3557,7 +3625,7 @@ function updateWorkWybijakPart(rowId, partIndex, value) {
   if (!row) return;
   const parts = getWybijakInputParts(row.Wybijak, row.Stanowisko);
   parts[partIndex] = String(value ?? '').replace(/[^\d]/g, '').trim();
-  row.Wybijak = buildWybijakValueFromParts(parts[0], parts[1]);
+  row.Wybijak = buildWybijakValueFromParts(parts[0], parts[1], row.DzialanieWybijakow);
 }
 
 function updateWorkProgressValue(rowId, field, value) {
@@ -3702,6 +3770,12 @@ function createWorkRowFromProductRow(sourceRow = {}, rowId = getNextWorkRowId())
   const width = normalizeWorkCorrectionValue(sourceRow['Szerokość'] ?? sourceRow.szerokosc);
   const quantity = normalizeWorkCorrectionValue(sourceRow['ilość'] ?? sourceRow.ilosc ?? 0);
   const station = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
+  const action = resolveStoredPunchAction(
+    sourceRow.DzialanieWybijakow,
+    station,
+    length,
+    sourceRow.Wybijak ?? sourceRow.wybijak ?? '',
+  );
 
   return normalizeWorkRow({
     id: rowId,
@@ -3715,7 +3789,8 @@ function createWorkRowFromProductRow(sourceRow = {}, rowId = getNextWorkRowId())
     Dlugosc: length,
     Sztuk: quantity,
     WykonaneSztuki: 0,
-    Wybijak: station ? getWybijakValueForStation(station, length) : normalizeWorkCorrectionValue(sourceRow.Wybijak ?? sourceRow.wybijak ?? 0),
+    Wybijak: station ? getWybijakValueForStation(station, length, action) : normalizeWorkCorrectionValue(sourceRow.Wybijak ?? sourceRow.wybijak ?? 0),
+    DzialanieWybijakow: action,
     TekstDoDruku: normalizePrintTextValue(sourceRow.Kod ?? sourceRow.TekstDoDruku ?? ''),
     Klasa: normalizeDefaultClassValue(sourceRow.Klasa ?? sourceRow.klasa),
     zliczonaIloscIn: quantity,
@@ -4008,6 +4083,7 @@ function getWorkRowMissingFields(row) {
   if (payload.Dlugosc > boardMaxLength) missingFields.push(`Długość > ${boardMaxLength} mm`);
   if (!payload.Grubosc) missingFields.push('Grubość');
   if (!payload.Szerokosc) missingFields.push('Szerokość');
+  if (!normalizePunchActionValue(payload.DzialanieWybijakow)) missingFields.push('Działanie Wybijaków');
   if (!payload.Wybijak) missingFields.push('Wybijak');
   if (!payload.Sztuk) missingFields.push('Ilość');
   if (payload.Sztuk > maxQuantity) missingFields.push(`Ilość > ${maxQuantity}`);
@@ -4037,12 +4113,17 @@ function getWorkRowsValidationMessage(rows, contextMessage) {
 }
 
 function getWorkCellValidationMessage(row, column) {
+  if (column === 'Wybijak') {
+    return getRecipeWybijakValidationIssue(row);
+  }
+
   const validationLabelByKey = {
     TekstDoDruku: ['Tekst do druku >'],
     Material: ['Materiał'],
     Dlugosc: ['Długość', 'Długość >'],
     Grubosc: ['Grubość'],
     Szerokosc: ['Szerokość'],
+    DzialanieWybijakow: ['Działanie Wybijaków'],
     Wybijak: ['Wybijak'],
     Sztuk: ['Ilość', 'Ilość >'],
   };
@@ -4054,7 +4135,12 @@ function getWorkCellValidationMessage(row, column) {
   const matchedMessage = missingFields.find((field) =>
     expectedLabels.some((label) => (label.endsWith('>') ? field.startsWith(label) : field === label)),
   );
-  if (!matchedMessage) return '';
+  if (!matchedMessage) {
+    if (column === 'DzialanieWybijakow') {
+      return getRecipeWybijakValidationIssue(row);
+    }
+    return '';
+  }
 
   if (column === 'Dlugosc' && matchedMessage.startsWith('Długość > ')) {
     return matchedMessage;
@@ -4068,6 +4154,11 @@ function getWorkCellValidationMessage(row, column) {
     return matchedMessage;
   }
 
+  if (column === 'DzialanieWybijakow') {
+    const wybijakIssue = getRecipeWybijakValidationIssue(row);
+    if (wybijakIssue) return wybijakIssue;
+  }
+
   const expectedLabel = expectedLabels[0];
   return `Pole ${expectedLabel} jest wymagane.`;
 }
@@ -4078,6 +4169,7 @@ function getWorkCellValidationCriteria(column) {
     Dlugosc: `Podaj długość elementu w mm. Maksymalna długość: ${Math.max(1, normalizeWorkCorrectionValue(configSettings.value.boardMaxLength || DEFAULT_BOARD_MAX_LENGTH))} mm.`,
     Grubosc: 'Podaj grubość elementu w mm.',
     Szerokosc: 'Podaj szerokość elementu w mm.',
+    DzialanieWybijakow: 'Wybierz działanie wybijaków.',
     Wybijak: 'Wybierz stanowisko lub uzupełnij wartość wybijaka.',
     Sztuk: `Podaj ilość elementów. Maksymalna ilość: ${Math.max(1, normalizeWorkCorrectionValue(configSettings.value.maxQuantity || DEFAULT_MAX_QUANTITY))}.`,
   };
@@ -4105,6 +4197,7 @@ function getRecipeRowMissingFields(row) {
   if (!normalizeWorkCorrectionValue(row?.grubosc)) missingFields.push('Grubość');
   if (String(row?.szerokosc ?? '').trim() && !isStrictPositiveIntegerValue(row?.szerokosc)) missingFields.push('Szerokość: nieprawidłowy format');
   if (!normalizeWorkCorrectionValue(row?.szerokosc)) missingFields.push('Szerokość');
+  if (!normalizePunchActionValue(row?.DzialanieWybijakow)) missingFields.push('Działanie Wybijaków');
   if (!String(row?.wybijak ?? '').replace(/[^\d]/g, '').trim()) missingFields.push('Wybijak');
   if (String(row?.ilosc ?? '').trim() && !isStrictPositiveIntegerValue(row?.ilosc)) missingFields.push('Ilość: nieprawidłowy format');
   if (!normalizeWorkCorrectionValue(row?.ilosc)) missingFields.push('Ilość');
@@ -4412,6 +4505,9 @@ function createConfigMachine() {
 }
 
 function normalizeFavoriteElementRow(row) {
+  const stanowisko = normalizeStationValue(row?.Stanowisko ?? row?.stanowisko ?? '');
+  const dlugosc = row?.['Długość'] ?? row?.dlugosc ?? '';
+  const wybijak = row?.Wybijak ?? row?.wybijak ?? 0;
   return {
     Nazwa: row?.Nazwa ?? row?.nazwaSkladowej ?? '',
     'Długość': row?.['Długość'] ?? row?.dlugosc ?? '',
@@ -4422,8 +4518,9 @@ function normalizeFavoriteElementRow(row) {
     Grupa: normalizeGroupValue(row?.Grupa ?? row?.grupa ?? ''),
     Priorytet: normalizePriorityValue(row?.Priorytet ?? row?.priorytet ?? ''),
     'ilość': row?.['ilość'] ?? row?.ilosc ?? 0,
-    Wybijak: row?.Wybijak ?? row?.wybijak ?? 0,
-    Stanowisko: normalizeStationValue(row?.Stanowisko ?? row?.stanowisko ?? ''),
+    Wybijak: wybijak,
+    Stanowisko: stanowisko,
+    DzialanieWybijakow: resolveStoredPunchAction(row?.DzialanieWybijakow, stanowisko, dlugosc, wybijak),
   };
 }
 
@@ -4527,6 +4624,10 @@ async function loadConfig() {
 
   applyLoadedConfig(payload.config ?? { stations: [] });
   isConfigLoaded.value = true;
+  if (workRows.value.length) {
+    workRows.value = workRows.value.map((row, index) => normalizeWorkRow(row, index));
+    workRowsSnapshot.value = serializeWorkRows(workRows.value);
+  }
   await loadProductFiles();
 }
 
@@ -4987,9 +5088,13 @@ function applyMergeStationAssignments(mode) {
       rows.map((row) => {
         const autoStation = assignments.get(row._localId) || '';
         const nextStation = autoStation || normalizeStationValue(row.Stanowisko);
-        const nextWybijak = nextStation ? getWybijakValueForStation(nextStation, row.dlugosc) : '';
+        const nextAction = autoStation
+          ? getDefaultPunchActionForStation(nextStation, row.dlugosc)
+          : getResolvedPunchAction(row.DzialanieWybijakow, nextStation, row.dlugosc);
+        const nextWybijak = nextStation ? getWybijakValueForStation(nextStation, row.dlugosc, nextAction) : '';
         const hasChanged =
           String(nextStation ?? '') !== String(normalizeStationValue(row.Stanowisko) ?? '') ||
+          String(nextAction ?? '') !== String(row.DzialanieWybijakow ?? '') ||
           String(nextWybijak ?? '') !== String(row.wybijak ?? '');
 
         if (autoStation) {
@@ -5002,6 +5107,7 @@ function applyMergeStationAssignments(mode) {
         return {
           ...row,
           Stanowisko: nextStation,
+          DzialanieWybijakow: nextAction,
           wybijak: nextWybijak,
         };
       }),
@@ -5061,9 +5167,13 @@ function applyWorkStationAssignments(mode) {
 
     const autoStation = assignments.get(row.__clientId) || '';
     const nextStation = autoStation || normalizeStationValue(row.Stanowisko);
-    const nextWybijak = nextStation ? getWybijakValueForStation(nextStation, row.Dlugosc) : '';
+    const nextAction = autoStation
+      ? getDefaultPunchActionForStation(nextStation, row.Dlugosc)
+      : getResolvedPunchAction(row.DzialanieWybijakow, nextStation, row.Dlugosc);
+    const nextWybijak = nextStation ? getWybijakValueForStation(nextStation, row.Dlugosc, nextAction) : '';
     const hasChanged =
       String(nextStation ?? '') !== String(normalizeStationValue(row.Stanowisko) ?? '') ||
+      String(nextAction ?? '') !== String(row.DzialanieWybijakow ?? '') ||
       String(nextWybijak ?? '') !== String(row.Wybijak ?? '');
 
     if (autoStation) {
@@ -5076,6 +5186,7 @@ function applyWorkStationAssignments(mode) {
     return {
       ...row,
       Stanowisko: nextStation,
+      DzialanieWybijakow: nextAction,
       Wybijak: nextWybijak,
     };
   });
@@ -5238,7 +5349,12 @@ function applyConfigDistanceToCurrentWorkRecipe() {
       normalizeStationValue(row.Stanowisko) === stationValue
         ? {
             ...row,
-            Wybijak: getWybijakValueForStation(stationValue, row.Dlugosc),
+            DzialanieWybijakow: getResolvedPunchAction(row.DzialanieWybijakow, stationValue, row.Dlugosc),
+            Wybijak: getWybijakValueForStation(
+              stationValue,
+              row.Dlugosc,
+              getResolvedPunchAction(row.DzialanieWybijakow, stationValue, row.Dlugosc),
+            ),
           }
         : row,
     );
@@ -5355,17 +5471,21 @@ function getProductImportAvailableHeaders(headers = [], mapping = {}, fieldDefin
 
 function normalizeProductImportRow(sourceRow, mapping, fieldDefinitions = getActiveProductImportFieldDefinitions()) {
   const activeKeys = new Set(fieldDefinitions.map((field) => field.key));
+  const stanowisko = activeKeys.has('Stanowisko') ? normalizeStationValue(sourceRow?.[mapping.Stanowisko] ?? '') : '';
+  const dlugosc = activeKeys.has('Długość') ? String(sourceRow?.[mapping['Długość']] ?? '').trim() : '';
+  const dzialanieWybijakow = inferPunchActionFromWybijak(stanowisko, dlugosc, sourceRow?.[mapping.Wybijak] ?? '');
   return {
     Nazwa: activeKeys.has('Nazwa') ? String(sourceRow?.[mapping.Nazwa] ?? '').trim() : '',
     Kod: activeKeys.has('Kod') ? normalizePrintTextValue(sourceRow?.[mapping.Kod] ?? '') : '',
-    'Długość': activeKeys.has('Długość') ? String(sourceRow?.[mapping['Długość']] ?? '').trim() : '',
+    'Długość': dlugosc,
     'Grubość': activeKeys.has('Grubość') ? String(sourceRow?.[mapping['Grubość']] ?? '').trim() : '',
     'Szerokość': activeKeys.has('Szerokość') ? String(sourceRow?.[mapping['Szerokość']] ?? '').trim() : '',
     'Materiał': activeKeys.has('Materiał') ? String(sourceRow?.[mapping['Materiał']] ?? '').trim() : '',
     'ilość': activeKeys.has('ilość') ? String(sourceRow?.[mapping['ilość']] ?? '').trim() : '',
     Wybijak: activeKeys.has('Wybijak') ? String(sourceRow?.[mapping.Wybijak] ?? '').trim() : '',
     Klasa: activeKeys.has('Klasa') ? normalizeDefaultClassValue(sourceRow?.[mapping.Klasa] ?? '') : '',
-    Stanowisko: activeKeys.has('Stanowisko') ? normalizeStationValue(sourceRow?.[mapping.Stanowisko] ?? '') : '',
+    Stanowisko: stanowisko,
+    DzialanieWybijakow: dzialanieWybijakow,
     Grupa: '',
     Priorytet: '',
   };
@@ -5726,6 +5846,9 @@ function normalizeEditableCellValue(column, value) {
   if (column === 'Stanowisko' || column === 'stanowisko') {
     return normalizeStationValue(value);
   }
+  if (column === 'DzialanieWybijakow') {
+    return normalizePunchActionValue(value);
+  }
   return value;
 }
 
@@ -5733,6 +5856,14 @@ function normalizeMaterialValue(value) {
   const normalizedValue = String(value ?? '').trim();
   if (!normalizedValue) return '';
   return normalizedValue.charAt(0).toUpperCase() + normalizedValue.slice(1).toLowerCase();
+}
+
+function normalizePunchActionValue(value) {
+  const normalizedValue = String(value ?? '').trim().toLowerCase();
+  if (normalizedValue === PUNCH_ACTION_SINGLE) return PUNCH_ACTION_SINGLE;
+  if (normalizedValue === PUNCH_ACTION_SYNC) return PUNCH_ACTION_SYNC;
+  if (normalizedValue === PUNCH_ACTION_ALTERNATING) return PUNCH_ACTION_ALTERNATING;
+  return '';
 }
 
 function getDropdownOptions(column) {
@@ -5747,6 +5878,10 @@ function isDropdownColumn(column) {
 
 function isStationColumn(column) {
   return column === 'Stanowisko' || column === 'stanowisko';
+}
+
+function isPunchActionColumn(column) {
+  return column === 'DzialanieWybijakow';
 }
 
 function isDimensionColumn(column) {
@@ -5785,50 +5920,165 @@ function getStationDropdownOptions(currentValue = '', compactSelectedValue = fal
   return options;
 }
 
+function getPunchActionDropdownOptions() {
+  return PUNCH_ACTION_OPTIONS;
+}
+
+function getPunchActionDisplayValue(value) {
+  return normalizePunchActionValue(value) || '';
+}
+
 function getNormalizedLengthValue(lengthValue) {
   const normalized = Number(String(lengthValue ?? '').replace(',', '.'));
   return Number.isFinite(normalized) ? normalized : 0;
 }
 
-function getWybijakValueForStation(stationValue, lengthValue = 0) {
+function getStationPunchNumbers(stationValue) {
+  const normalizedStationValue = normalizeStationValue(stationValue);
+  if (!normalizedStationValue) return [];
+  if (normalizedStationValue === SPECIAL_DYSZA_STATION_VALUE) return [SPECIAL_DYSZA_WYBIJAK_VALUE];
+
+  const stationIndex = Number.parseInt(normalizedStationValue, 10) - 1;
+  if (!Number.isFinite(stationIndex) || stationIndex < 0) return [];
+
+  const station = configStations.value[stationIndex];
+  if (!station) return [];
+
+  return getConfigStationOrderedPunches(station)
+    .map((punch) => normalizeConfigPunchNumber(punch))
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function hasTooShortLengthForDistance(stationValue, lengthValue = 0) {
+  const normalizedStationValue = normalizeStationValue(stationValue);
+  if (!normalizedStationValue || normalizedStationValue === SPECIAL_DYSZA_STATION_VALUE) return false;
+
+  const stationIndex = Number.parseInt(normalizedStationValue, 10) - 1;
+  if (!Number.isFinite(stationIndex) || stationIndex < 0) return false;
+
+  const station = configStations.value[stationIndex];
+  if (!station) return false;
+
+  const normalizedLength = getNormalizedLengthValue(lengthValue);
+  const orderedDistanceRules = Array.isArray(station.distanceRules) ? station.distanceRules : [];
+  return orderedDistanceRules.some((rule) => {
+    const distance = getNormalizedLengthValue(rule?.distance);
+    return distance > 0 && normalizedLength > 0 && normalizedLength < distance;
+  });
+}
+
+function getDefaultPunchActionForStation(stationValue, lengthValue = 0) {
+  const normalizedStationValue = normalizeStationValue(stationValue);
+  if (!normalizedStationValue) return '';
+  if (normalizedStationValue === SPECIAL_DYSZA_STATION_VALUE) return PUNCH_ACTION_SINGLE;
+
+  const punchNumbers = getStationPunchNumbers(normalizedStationValue);
+  if (punchNumbers.length <= 1) return PUNCH_ACTION_SINGLE;
+  return hasTooShortLengthForDistance(normalizedStationValue, lengthValue)
+    ? PUNCH_ACTION_ALTERNATING
+    : PUNCH_ACTION_SYNC;
+}
+
+function getInitialPunchAction(explicitAction, stationValue, lengthValue = 0) {
+  const normalizedExplicitAction = normalizePunchActionValue(explicitAction);
+  if (normalizedExplicitAction) {
+    return getResolvedPunchAction(normalizedExplicitAction, stationValue, lengthValue);
+  }
+  return getDefaultPunchActionForStation(stationValue, lengthValue);
+}
+
+function resolveStoredPunchAction(explicitAction, stationValue, lengthValue = 0, wybijakValue = '') {
+  return getResolvedPunchAction(
+    explicitAction || inferPunchActionFromWybijak(stationValue, lengthValue, wybijakValue),
+    stationValue,
+    lengthValue,
+  );
+}
+
+function inferPunchActionFromWybijak(stationValue, lengthValue = 0, wybijakValue = '') {
+  const normalizedAction = normalizePunchActionValue(wybijakValue);
+  if (normalizedAction) return normalizedAction;
+
+  const normalizedStationValue = normalizeStationValue(stationValue);
+  const normalizedRawDigits = String(wybijakValue ?? '').replace(/[^\d]/g, '').trim();
+  const punchNumbers = getStationPunchNumbers(normalizedStationValue);
+  if (normalizedRawDigits && punchNumbers.length >= 1) {
+    const firstPunch = String(punchNumbers[0] ?? '').trim();
+    const secondPunch = String(punchNumbers[1] ?? '').trim();
+    if (normalizedRawDigits === firstPunch) return PUNCH_ACTION_SINGLE;
+    if (firstPunch && secondPunch) {
+      if (normalizedRawDigits === buildAlternatingWybijakValue(firstPunch, secondPunch)) return PUNCH_ACTION_ALTERNATING;
+      if (
+        normalizedRawDigits === buildSyncWybijakValue(firstPunch, secondPunch) ||
+        normalizedRawDigits === `${firstPunch}0${secondPunch}`
+      ) {
+        return PUNCH_ACTION_SYNC;
+      }
+    }
+  }
+
+  const [firstPart, secondPart] = getWybijakInputParts(wybijakValue, stationValue);
+  if (!String(firstPart ?? '').trim() && !String(secondPart ?? '').trim()) {
+    return getDefaultPunchActionForStation(stationValue, lengthValue);
+  }
+  if (!String(secondPart ?? '').trim()) return PUNCH_ACTION_SINGLE;
+  return getDefaultPunchActionForStation(stationValue, lengthValue);
+}
+
+function getResolvedPunchAction(currentAction, stationValue, lengthValue = 0) {
+  const normalizedCurrentAction = normalizePunchActionValue(currentAction);
+  const normalizedStationValue = normalizeStationValue(stationValue);
+  if (!normalizedStationValue) return normalizedCurrentAction || '';
+  if (normalizedStationValue === SPECIAL_DYSZA_STATION_VALUE) return PUNCH_ACTION_SINGLE;
+
+  const punchNumbers = getStationPunchNumbers(normalizedStationValue);
+  if (punchNumbers.length <= 1) return PUNCH_ACTION_SINGLE;
+  if (normalizedCurrentAction) return normalizedCurrentAction;
+  return getDefaultPunchActionForStation(normalizedStationValue, lengthValue);
+}
+
+function getAcceptedWybijakValuesForPunchPair(firstPart, secondPart) {
+  const first = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
+  const second = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
+  const acceptedValues = new Set();
+  if (!first) return acceptedValues;
+
+  acceptedValues.add(first);
+  if (!second) return acceptedValues;
+
+  const syncValue = buildSyncWybijakValue(first, second);
+  const alternatingValue = buildAlternatingWybijakValue(first, second);
+  if (syncValue) acceptedValues.add(syncValue);
+  if (alternatingValue) acceptedValues.add(alternatingValue);
+
+  const legacySyncValue = `${first}0${second}`;
+  if (legacySyncValue) acceptedValues.add(legacySyncValue);
+  if (isSpecialTenElevenWybijakPair(first, second)) acceptedValues.add('11110');
+
+  return acceptedValues;
+}
+
+function getWybijakValueForStation(stationValue, lengthValue = 0, actionValue = '') {
   const normalizedStationValue = normalizeStationValue(stationValue);
   if (!normalizedStationValue) return '';
   if (normalizedStationValue === SPECIAL_DYSZA_STATION_VALUE) return SPECIAL_DYSZA_WYBIJAK_VALUE;
 
-  const stationIndex = Number.parseInt(normalizedStationValue, 10) - 1;
-  if (!Number.isFinite(stationIndex) || stationIndex < 0) return '';
-
-  const station = configStations.value[stationIndex];
-  if (!station) return '';
-
-  const punchNumbers = getConfigStationOrderedPunches(station)
-    .map((punch) => normalizeConfigPunchNumber(punch))
-    .filter(Boolean)
-    .slice(0, 2);
-
+  const punchNumbers = getStationPunchNumbers(normalizedStationValue);
   if (!punchNumbers.length) return '';
-  const normalizedLength = getNormalizedLengthValue(lengthValue);
-  const orderedDistanceRules = Array.isArray(station.distanceRules) ? station.distanceRules : [];
-  const hasTooShortLengthForDistance = orderedDistanceRules.some((rule) => {
-    const distance = getNormalizedLengthValue(rule?.distance);
-    return distance > 0 && normalizedLength > 0 && normalizedLength < distance;
-  });
+  const resolvedAction = getResolvedPunchAction(actionValue, normalizedStationValue, lengthValue);
 
-  if (hasTooShortLengthForDistance) {
-    return punchNumbers[0];
+  if (resolvedAction === PUNCH_ACTION_SINGLE || punchNumbers.length === 1) return punchNumbers[0];
+  if (resolvedAction === PUNCH_ACTION_ALTERNATING) {
+    return buildAlternatingWybijakValue(punchNumbers[0], punchNumbers[1]);
   }
-  if (punchNumbers.length === 1) return punchNumbers[0];
-  if (punchNumbers.length === 2 && isSpecialTenElevenWybijakPair(punchNumbers[0], punchNumbers[1])) {
-    return '11110';
-  }
-  return `${punchNumbers[0]}0${punchNumbers[1]}`;
+  return buildSyncWybijakValue(punchNumbers[0], punchNumbers[1]);
 }
 
 function formatWorkWybijakDisplayValue(row) {
   const rawValue = String(row?.Wybijak ?? '').trim();
   if (!rawValue) return '';
   if (rawValue.includes(' i ')) return rawValue;
-  if (rawValue.replace(/[^\d]/g, '').trim() === '11110') return '11110';
   const configuredPair = getConfiguredWybijakPair(rawValue, row?.Stanowisko);
   if (configuredPair) {
     return `${configuredPair[0]} i ${configuredPair[1]}`;
@@ -5857,11 +6107,7 @@ function getConfiguredWybijakPair(rawDigits, stationValue = '') {
 
     if (
       punchNumbers.length === 2 &&
-      (
-        normalizedRawDigits === punchNumbers.join('') ||
-        normalizedRawDigits === `${punchNumbers[0]}0${punchNumbers[1]}` ||
-        (punchNumbers[0] === '10' && punchNumbers[1] === '11' && normalizedRawDigits === '11110')
-      )
+      getAcceptedWybijakValuesForPunchPair(punchNumbers[0], punchNumbers[1]).has(normalizedRawDigits)
     ) {
       return punchNumbers;
     }
@@ -5880,26 +6126,27 @@ function getWybijakInputParts(value, stationValue = '') {
     return [explicitParts[0] ?? '', explicitParts[1] ?? ''];
   }
 
-  const normalizedRawDigits = rawValue.replace(/[^\d]/g, '').trim();
-  if (normalizedRawDigits.length === 3 && normalizedRawDigits[1] === '0') {
-    return [normalizedRawDigits[0] ?? '', normalizedRawDigits[2] ?? ''];
-  }
-
   const configuredPair = getConfiguredWybijakPair(rawValue, stationValue);
   if (configuredPair) {
     return [configuredPair[0] ?? '', configuredPair[1] ?? ''];
   }
 
+  const normalizedRawDigits = rawValue.replace(/[^\d]/g, '').trim();
+  if (normalizedRawDigits.length === 3 && normalizedRawDigits[1] === '0') {
+    return [normalizedRawDigits[0] ?? '', normalizedRawDigits[2] ?? ''];
+  }
+
   return [String(rawValue).replace(/[^\d]/g, '').trim(), ''];
 }
 
-function buildWybijakValueFromParts(firstPart, secondPart) {
+function buildWybijakValueFromParts(firstPart, secondPart, actionValue = '') {
   const first = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
   const second = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
+  const normalizedAction = normalizePunchActionValue(actionValue);
+  if (normalizedAction === PUNCH_ACTION_SINGLE) return first || second || '';
   if (first && second) {
-    if (isSpecialTenElevenWybijakPair(first, second)) return '11110';
-    if (first.length > 1 || second.length > 1) return `${first} i ${second}`;
-    return `${first}0${second}`;
+    if (normalizedAction === PUNCH_ACTION_ALTERNATING) return buildAlternatingWybijakValue(first, second);
+    return buildSyncWybijakValue(first, second);
   }
   return first || second || '';
 }
@@ -5981,6 +6228,10 @@ function getMergeDropdownOptions(productName, row, column) {
     return getStationDropdownOptions(row?.[column], true);
   }
 
+  if (isPunchActionColumn(column)) {
+    return getPunchActionDropdownOptions();
+  }
+
   return [];
 }
 
@@ -6028,7 +6279,13 @@ function createMergeDraftRow(productName, sourceRow = {}) {
   const klasa = sourceRow.Klasa ?? sourceRow.klasa ?? 2;
   const stanowisko = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
   const dlugosc = sourceRow['Długość'] ?? sourceRow.dlugosc ?? '';
-  const wybijak = stanowisko ? getWybijakValueForStation(stanowisko, dlugosc) : '';
+  const dzialanieWybijakow = resolveStoredPunchAction(
+    sourceRow.DzialanieWybijakow,
+    stanowisko,
+    dlugosc,
+    sourceRow.Wybijak ?? sourceRow.wybijak ?? '',
+  );
+  const wybijak = stanowisko ? getWybijakValueForStation(stanowisko, dlugosc, dzialanieWybijakow) : '';
 
   return {
     _localId: createProductLocalId(),
@@ -6043,6 +6300,7 @@ function createMergeDraftRow(productName, sourceRow = {}) {
     idReceptury: sourceRow.idReceptury ?? 26,
     idSkladowej: sourceRow.idSkladowej ?? 0,
     wybijak,
+    DzialanieWybijakow: dzialanieWybijakow,
     grupa: '',
     priorytet: '',
     ilosc: baseQuantity,
@@ -6059,7 +6317,13 @@ function createRecipePreviewDraftRow(sourceRow = {}) {
   const klasa = sourceRow.Klasa ?? sourceRow.klasa ?? 0;
   const stanowisko = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
   const dlugosc = sourceRow.dlugosc ?? '';
-  const wybijak = stanowisko ? getWybijakValueForStation(stanowisko, dlugosc) : (sourceRow.wybijak ?? '');
+  const dzialanieWybijakow = resolveStoredPunchAction(
+    sourceRow.DzialanieWybijakow,
+    stanowisko,
+    dlugosc,
+    sourceRow.Wybijak ?? sourceRow.wybijak ?? '',
+  );
+  const wybijak = stanowisko ? getWybijakValueForStation(stanowisko, dlugosc, dzialanieWybijakow) : (sourceRow.wybijak ?? '');
   return {
     _localId: createProductLocalId(),
     nazwaSkladowej: sourceRow.nazwaSkladowej ?? '',
@@ -6070,6 +6334,7 @@ function createRecipePreviewDraftRow(sourceRow = {}) {
     idReceptury: sourceRow.idReceptury ?? 0,
     idSkladowej: sourceRow.idSkladowej ?? 0,
     wybijak,
+    DzialanieWybijakow: dzialanieWybijakow,
     grupa: '',
     priorytet: '',
     ilosc: sourceRow.ilosc ?? 0,
@@ -6367,6 +6632,7 @@ function createEditableProductRow(fileName = "") {
     'ilość': '',
     Wybijak: '',
     Stanowisko: '',
+    DzialanieWybijakow: '',
     _sourceFile: fileName,
     _localId: createProductLocalId(),
     _originalRowData: {},
@@ -6389,7 +6655,13 @@ function normalizeProductRows(fileName, headers, rows) {
       const klasa = normalizeDefaultClassValue(getCellValue(sourceRow, ['Klasa', 'KLASA', 'Klasa jakosci', 'KLASA JAKOSCI']));
       const stanowisko = getCellValue(sourceRow, ['Stanowisko', 'STANOWISKO']) ?? '';
       const normalizedStation = normalizeStationValue(stanowisko);
-      const computedWybijak = normalizedStation ? getWybijakValueForStation(normalizedStation, length) : '';
+      const punchAction = resolveStoredPunchAction(
+        sourceRow.DzialanieWybijakow,
+        normalizedStation,
+        length,
+        getCellValue(sourceRow, ['Wybijak']) || '',
+      );
+      const computedWybijak = normalizedStation ? getWybijakValueForStation(normalizedStation, length, punchAction) : '';
 
       return {
         Nazwa: name,
@@ -6404,6 +6676,7 @@ function normalizeProductRows(fileName, headers, rows) {
         'ilość': quantity,
         Wybijak: computedWybijak || getCellValue(sourceRow, ['Wybijak']) || 0,
         Stanowisko: normalizedStation,
+        DzialanieWybijakow: punchAction,
         _sourceFile: fileName,
         _rowIndex: index,
         _localId: createProductLocalId(),
@@ -6831,14 +7104,24 @@ function updateEditedCell(localId, column, value) {
 
   if (isStationColumn(column)) {
     row[column] = normalizedValue;
-    row.Wybijak = getWybijakValueForStation(normalizedValue, row['Długość']);
+    row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, normalizedValue, row['Długość']);
+    row.Wybijak = getWybijakValueForStation(normalizedValue, row['Długość'], row.DzialanieWybijakow);
+    return;
+  }
+
+  if (isPunchActionColumn(column)) {
+    row[column] = normalizedValue;
+    if (row.Stanowisko) {
+      row.Wybijak = getWybijakValueForStation(row.Stanowisko, row['Długość'], row.DzialanieWybijakow);
+    }
     return;
   }
 
   if (column === 'Długość') {
     row[column] = normalizedValue;
     if (row.Stanowisko) {
-      row.Wybijak = getWybijakValueForStation(row.Stanowisko, normalizedValue);
+      row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, row.Stanowisko, normalizedValue);
+      row.Wybijak = getWybijakValueForStation(row.Stanowisko, normalizedValue, row.DzialanieWybijakow);
     }
     return;
   }
@@ -6851,7 +7134,7 @@ function updateEditedWybijakPart(localId, partIndex, value) {
   if (!row) return;
   const parts = getWybijakInputParts(row.Wybijak, row.Stanowisko);
   parts[partIndex] = normalizeWybijakPartInputValue(value);
-  row.Wybijak = buildWybijakValueFromParts(parts[0], parts[1]);
+  row.Wybijak = buildWybijakValueFromParts(parts[0], parts[1], row.DzialanieWybijakow);
 }
 
 function getEditInputStyle(value, localId, column) {
@@ -7280,7 +7563,23 @@ async function loadSavedRecipes() {
     throw new Error(payload.error || 'Nie udało się pobrać zapisanych receptur.');
   }
 
-  const recipes = Array.isArray(payload.recipes) ? payload.recipes : [];
+  const recipes = Array.isArray(payload.recipes)
+    ? payload.recipes.map((entry) => ({
+        ...entry,
+        rows: Array.isArray(entry?.rows)
+          ? entry.rows.map((row) => {
+              const stanowisko = normalizeStationValue(row?.Stanowisko ?? row?.stanowisko ?? '');
+              const dlugosc = row?.dlugosc ?? row?.Dlugosc ?? row?.['Długość'] ?? '';
+              const wybijak = row?.Wybijak ?? row?.wybijak ?? '';
+              return {
+                ...row,
+                Stanowisko: stanowisko || (row?.Stanowisko ?? row?.stanowisko ?? ''),
+                DzialanieWybijakow: resolveStoredPunchAction(row?.DzialanieWybijakow, stanowisko, dlugosc, wybijak),
+              };
+            })
+          : [],
+      }))
+    : [];
   savedRecipeCatalog.value = recipes;
   selectedRecipeNames.value = selectedRecipeNames.value.filter((name) => recipes.some((entry) => entry.nazwaReceptury === name));
 
@@ -7873,7 +8172,16 @@ function updateRecipePreviewCell(localId, column, value) {
 
   if (isStationColumn(column)) {
     row[column] = normalizedValue;
-    row.wybijak = getWybijakValueForStation(normalizedValue, row.dlugosc);
+    row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, normalizedValue, row.dlugosc);
+    row.wybijak = getWybijakValueForStation(normalizedValue, row.dlugosc, row.DzialanieWybijakow);
+    return;
+  }
+
+  if (isPunchActionColumn(column)) {
+    row[column] = normalizedValue;
+    if (row.Stanowisko) {
+      row.wybijak = getWybijakValueForStation(row.Stanowisko, row.dlugosc, row.DzialanieWybijakow);
+    }
     return;
   }
 
@@ -7881,7 +8189,8 @@ function updateRecipePreviewCell(localId, column, value) {
     row[column] = normalizedValue;
     const stanowisko = normalizeStationValue(row.Stanowisko ?? row.stanowisko);
     if (stanowisko) {
-      row.wybijak = getWybijakValueForStation(stanowisko, normalizedValue);
+      row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, stanowisko, normalizedValue);
+      row.wybijak = getWybijakValueForStation(stanowisko, normalizedValue, row.DzialanieWybijakow);
     }
     return;
   }
@@ -7894,7 +8203,7 @@ function updateRecipePreviewWybijakPart(localId, partIndex, value) {
   if (!row) return;
   const parts = getWybijakInputParts(row.wybijak, row.Stanowisko);
   parts[partIndex] = normalizeWybijakPartInputValue(value);
-  row.wybijak = buildWybijakValueFromParts(parts[0], parts[1]);
+  row.wybijak = buildWybijakValueFromParts(parts[0], parts[1], row.DzialanieWybijakow);
 }
 
 function addRecipePreviewRow() {
@@ -8220,6 +8529,10 @@ function updateMergeRecipeCell(productName, localId, column, value) {
   const row = rows.find((item) => item._localId === localId);
   if (!row) return;
   const allMergeRows = [...getGlobalMergeDraftRows(productName), ...rows];
+  const syncMergeWybijakValue = (nextWybijak) => {
+    row.wybijak = nextWybijak;
+    row.Wybijak = nextWybijak;
+  };
 
   if (column === 'ilosc') {
     const normalizedValue = Number(String(value ?? '').replace(',', '.'));
@@ -8251,7 +8564,16 @@ function updateMergeRecipeCell(productName, localId, column, value) {
 
   if (isStationColumn(column)) {
     row[column] = normalizedValue;
-    row.wybijak = getWybijakValueForStation(normalizedValue, row.dlugosc);
+    row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, normalizedValue, row.dlugosc);
+    syncMergeWybijakValue(getWybijakValueForStation(normalizedValue, row.dlugosc, row.DzialanieWybijakow));
+    return;
+  }
+
+  if (isPunchActionColumn(column)) {
+    row[column] = normalizedValue;
+    if (row.Stanowisko) {
+      syncMergeWybijakValue(getWybijakValueForStation(row.Stanowisko, row.dlugosc, row.DzialanieWybijakow));
+    }
     return;
   }
 
@@ -8259,7 +8581,8 @@ function updateMergeRecipeCell(productName, localId, column, value) {
     row[column] = normalizedValue;
     const stanowisko = normalizeStationValue(row.Stanowisko ?? row.stanowisko);
     if (stanowisko) {
-      row.wybijak = getWybijakValueForStation(stanowisko, normalizedValue);
+      row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, stanowisko, normalizedValue);
+      syncMergeWybijakValue(getWybijakValueForStation(stanowisko, normalizedValue, row.DzialanieWybijakow));
     }
     return;
   }
@@ -8272,7 +8595,9 @@ function updateMergeRecipeWybijakPart(productName, localId, partIndex, value) {
   if (!row) return;
   const parts = getWybijakInputParts(row.wybijak, row.Stanowisko);
   parts[partIndex] = normalizeWybijakPartInputValue(value);
-  row.wybijak = buildWybijakValueFromParts(parts[0], parts[1]);
+  const nextWybijak = buildWybijakValueFromParts(parts[0], parts[1], row.DzialanieWybijakow);
+  row.wybijak = nextWybijak;
+  row.Wybijak = nextWybijak;
 }
 
 function addMergeRecipeRow(productName) {
@@ -8351,6 +8676,12 @@ async function loadRecipeToWorkMain() {
       Sztuk: row.ilosc || row.Sztuk,
       WykonaneSztuki: row.iloscWykonana ?? row.WykonaneSztuki ?? 0,
       Wybijak: row.wybijak ?? row.Wybijak ?? 0,
+      DzialanieWybijakow: resolveStoredPunchAction(
+        row.DzialanieWybijakow,
+        row.Stanowisko ?? row.stanowisko ?? '',
+        row.dlugosc || row.Dlugosc,
+        row.wybijak ?? row.Wybijak ?? '',
+      ),
       Rodzaj: row.rodzaj || row.Rodzaj || '',
       TekstDoDruku: row.TekstDoDruku,
       idrec: row.idReceptury || row.idrec || 0,
@@ -8490,8 +8821,9 @@ onMounted(() => {
   window.addEventListener('keydown', handleGlobalEscape);
   window.addEventListener('pointerdown', handleWorkRecipeMenuOutsideClick);
   loadSavedRecipes();
-  loadWorkMainRows().catch(() => {});
-  loadConfig().catch(() => {});
+  loadConfig()
+    .then(() => loadWorkMainRows())
+    .catch(() => {});
   loadMachineStatus().catch(() => {});
   loadDatabaseConnectionStatus().catch(() => {
     isDatabaseConnected.value = false;
@@ -8650,12 +8982,20 @@ const WorkTable = defineComponent({
                       },
                     },
                     props.columns.map((column) => {
+                      const resolvedRowPayload = column !== 'Progress' ? getWorkRowPayload(row) : null;
+                      const resolvedPunchActionValue = resolvedRowPayload?.DzialanieWybijakow ?? row.DzialanieWybijakow ?? '';
+                      const resolvedWybijakValue = resolvedRowPayload?.Wybijak ?? row.Wybijak ?? '';
                       if (column === 'id') {
                         return h('td', { key: `${row.__clientId}-${column}` }, row.id ?? '');
                       }
 
                       if (column !== 'Progress' && !isWorkRowEditing(row.__clientId)) {
-                        const displayValue = column === 'Wybijak' ? formatWorkWybijakDisplayValue(row) : (row[column] ?? '');
+                        const displayValue =
+                          column === 'Wybijak'
+                            ? formatWorkWybijakDisplayValue({ ...row, Wybijak: resolvedWybijakValue })
+                            : column === 'DzialanieWybijakow'
+                              ? getPunchActionDisplayValue(resolvedPunchActionValue)
+                              : (row[column] ?? '');
                         const validationMessage = getWorkCellValidationMessage(row, column);
                         if (!validationMessage) {
                           return h('td', { key: `${row.__clientId}-${column}` }, displayValue);
@@ -8680,12 +9020,27 @@ const WorkTable = defineComponent({
                         if (row.__disabled) {
                           const validationMessage = getWorkCellValidationMessage(row, column);
                           if (!validationMessage) {
-                            return h('td', { key: `${row.__clientId}-${column}` }, row[column] ?? '');
+                            return h(
+                              'td',
+                              { key: `${row.__clientId}-${column}` },
+                              column === 'DzialanieWybijakow'
+                                ? getPunchActionDisplayValue(resolvedPunchActionValue)
+                                : column === 'Wybijak'
+                                  ? formatWorkWybijakDisplayValue({ ...row, Wybijak: resolvedWybijakValue })
+                                  : (row[column] ?? ''),
+                            );
                           }
 
                           return h('td', { key: `${row.__clientId}-${column}` }, [
                             h('span', { class: 'cell-warning-wrap' }, [
-                              h('span', row[column] ?? ''),
+                              h(
+                                'span',
+                                column === 'DzialanieWybijakow'
+                                  ? getPunchActionDisplayValue(resolvedPunchActionValue)
+                                  : column === 'Wybijak'
+                                    ? formatWorkWybijakDisplayValue({ ...row, Wybijak: resolvedWybijakValue })
+                                    : (row[column] ?? ''),
+                              ),
                               h(
                                 'span',
                                 {
@@ -8707,7 +9062,7 @@ const WorkTable = defineComponent({
                                   class: 'edit-input work-cell-input',
                                   value: row[column] ?? '',
                                   style: getWorkEditInputStyle(column, row[column]),
-                                  onInput: (event) => updateWorkCell(row.__clientId, column, event.target.value),
+                                  onChange: (event) => updateWorkCell(row.__clientId, column, event.target.value),
                                 },
                                 [
                                   h('option', { value: '' }, ''),
@@ -8730,11 +9085,45 @@ const WorkTable = defineComponent({
                           ]);
                         }
 
-                        if (column === 'Wybijak') {
-                          const [firstPart, secondPart] = getWybijakInputParts(row[column], row.Stanowisko);
+                        if (isPunchActionColumn(column)) {
                           const validationMessage = getWorkCellValidationMessage(row, column);
                           return h('td', { key: `${row.__clientId}-${column}` }, [
-                            h('div', { class: 'wybijak-edit-group' }, [
+                            h('div', { class: 'cell-edit-with-warning' }, [
+                              h(
+                                'select',
+                                {
+                                  key: `${row.__clientId}-${column}-${resolvedPunchActionValue}`,
+                                  class: 'edit-input work-cell-input',
+                                  value: resolvedPunchActionValue,
+                                  style: getWorkEditInputStyle(column, resolvedPunchActionValue),
+                                  onChange: (event) => updateWorkCell(row.__clientId, column, event.target.value),
+                                },
+                                [
+                                  h('option', { value: '' }, ''),
+                                  ...getPunchActionDropdownOptions().map((option) =>
+                                    h('option', { key: `${row.__clientId}-${column}-${option.value}`, value: option.value }, option.label),
+                                  ),
+                                ],
+                              ),
+                              validationMessage
+                                ? h(
+                                    'span',
+                                    {
+                                      class: 'cell-warning-indicator inline-warning-indicator',
+                                      title: validationMessage || getWorkCellValidationCriteria(column),
+                                    },
+                                    '!',
+                                  )
+                                : null,
+                            ]),
+                          ]);
+                        }
+
+                        if (column === 'Wybijak') {
+                          const [firstPart, secondPart] = getWybijakInputParts(resolvedWybijakValue, row.Stanowisko);
+                          const validationMessage = getWorkCellValidationMessage(row, column);
+                          return h('td', { key: `${row.__clientId}-${column}` }, [
+                            h('div', { class: 'wybijak-edit-group', key: `${row.__clientId}-${resolvedWybijakValue}-${resolvedPunchActionValue}` }, [
                               ...(isDyszaStationValue(row.Stanowisko)
                                 ? [
                                     h('input', {
@@ -9008,14 +9397,17 @@ const RecipePreviewTable = defineComponent({
                           return h('td', row[column] ?? '');
                         }
 
-                        if (isDropdownColumn(column) || isStationColumn(column)) {
+                        if (isDropdownColumn(column) || isStationColumn(column) || isPunchActionColumn(column)) {
                           const options = isStationColumn(column)
                             ? getStationDropdownOptions(row?.[column], true)
-                            : getMergeDropdownOptions('', row, column);
+                            : isPunchActionColumn(column)
+                              ? getPunchActionDropdownOptions()
+                              : getMergeDropdownOptions('', row, column);
                           return h('td', [
                             h(
                               'select',
                               {
+                                key: isPunchActionColumn(column) ? `${row._localId ?? row.idSkladowej ?? rowIndex}-${column}-${row[column] ?? ''}` : undefined,
                                 class: 'edit-input recipe-preview-input',
                                 value: row[column] ?? '',
                                 style: getRecipePreviewEditInputStyle(column, row[column]),

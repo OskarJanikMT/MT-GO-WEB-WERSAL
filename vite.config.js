@@ -49,6 +49,7 @@ const RECIPE_ROW_EXPORT_COLUMNS = [
   'idReceptury',
   'idSkladowej',
   'wybijak',
+  'DzialanieWybijakow',
   'grupa',
   'priorytet',
   'ilosc',
@@ -317,14 +318,15 @@ function parseRecipeWorkbook(workbook) {
   return normalizedRecipes;
 }
 
-function getRecipeWybijakValidationError(rows, machinePunchCount) {
+function getRecipeWybijakValidationError(rows, appConfig) {
+  const machinePunchCount = appConfig?.settings?.machinePunchCount;
   const maxPunchCount = Math.max(1, Number.parseInt(String(machinePunchCount ?? DEFAULT_MACHINE_PUNCH_COUNT), 10) || DEFAULT_MACHINE_PUNCH_COUNT);
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] && typeof rows[rowIndex] === 'object' ? rows[rowIndex] : {};
     const rawValue = String(row.wybijak ?? row.Wybijak ?? '').trim();
     const digits = rawValue.replace(/[^\d]/g, '');
-    const stanowisko = String(row.Stanowisko ?? row.stanowisko ?? '').trim().toLowerCase();
+    const stanowisko = normalizeStationValueForValidation(row.Stanowisko ?? row.stanowisko ?? '');
 
     if (stanowisko === 'dysza') {
       if (digits !== '1') {
@@ -341,19 +343,25 @@ function getRecipeWybijakValidationError(rows, machinePunchCount) {
       return `Wiersz ${rowIndex + 1}: wybijak może mieć maksymalnie 5 cyfr.`;
     }
 
-    if (digits.length === 5) {
-      if (digits !== '11110') {
-        return `Wiersz ${rowIndex + 1}: format 5-cyfrowy jest zarezerwowany dla wartości 11110.`;
+    const stationPunchNumbers = getStationPunchNumbersForValidation(appConfig, stanowisko);
+    if (stationPunchNumbers.length) {
+      for (const punchNumber of stationPunchNumbers) {
+        if (punchNumber === '0' || Number(punchNumber) > maxPunchCount) {
+          return `Wiersz ${rowIndex + 1}: wybijak w konfiguracji stanowiska musi być w zakresie 1-${maxPunchCount}.`;
+        }
+      }
+
+      if (stationPunchNumbers.length === 1) {
+        if (digits !== stationPunchNumbers[0]) {
+          return `Wiersz ${rowIndex + 1}: wybijak nie zgadza się z konfiguracją stanowiska ${stanowisko}.`;
+        }
+        continue;
+      }
+
+      if (!getAcceptedWybijakValuesForPunchPair(stationPunchNumbers[0], stationPunchNumbers[1]).has(digits)) {
+        return `Wiersz ${rowIndex + 1}: wybijak nie zgadza się z konfiguracją stanowiska ${stanowisko}.`;
       }
       continue;
-    }
-
-    if (digits.length === 3 && digits[1] !== '0') {
-      return `Wiersz ${rowIndex + 1}: przy dwóch wybijakach środkowa cyfra musi być równa 0.`;
-    }
-
-    if (digits.length === 4) {
-      return `Wiersz ${rowIndex + 1}: wybijak ma nieprawidłowy format.`;
     }
 
     if (digits.length <= 2) {
@@ -363,16 +371,7 @@ function getRecipeWybijakValidationError(rows, machinePunchCount) {
       continue;
     }
 
-    const firstPunch = digits[0] ?? '';
-    const secondPunch = digits[2] ?? '';
-
-    if (!firstPunch || firstPunch === '0' || Number(firstPunch) > maxPunchCount) {
-      return `Wiersz ${rowIndex + 1}: pierwszy wybijak musi być w zakresie 1-${maxPunchCount}.`;
-    }
-
-    if (secondPunch === '0' || Number(secondPunch) > maxPunchCount) {
-      return `Wiersz ${rowIndex + 1}: drugi wybijak musi być w zakresie 1-${maxPunchCount}.`;
-    }
+    return `Wiersz ${rowIndex + 1}: wybijak ma nieprawidłowy format.`;
   }
 
   return '';
@@ -510,17 +509,82 @@ function toSqlDigitSequenceNumber(value, fallback = 0) {
     ?.slice(0, 2) ?? [];
   const normalizedDigits = rawValue.replace(/[^\d]/g, '');
 
-  if (
-    (numericGroups.length === 2 && numericGroups[0] === '10' && numericGroups[1] === '11') ||
-    normalizedDigits === '10011'
-  ) {
-    return 11110;
+  if (normalizedDigits) {
+    const parsedDigits = Number.parseInt(normalizedDigits, 10);
+    return Number.isFinite(parsedDigits) ? parsedDigits : fallback;
   }
 
-  const normalizedText = numericGroups.join('');
+  let normalizedText = numericGroups.join('');
+  if (numericGroups.length === 2 && numericGroups[0].length === 1 && numericGroups[1].length === 1) {
+    normalizedText = `${numericGroups[0]}0${numericGroups[1]}`;
+  }
   if (!normalizedText) return fallback;
   const parsed = Number.parseInt(normalizedText, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeStationValueForValidation(value) {
+  const normalizedText = String(value ?? '').trim();
+  if (!normalizedText) return '';
+  if (normalizedText.toLowerCase() === 'dysza' || normalizedText === '0' || normalizedText === '-1') return 'dysza';
+
+  const normalized = normalizedText.replace(/[^\d]/g, '').trim();
+  if (normalized === '11' || normalized === '21' || normalized === '31') {
+    return normalized[0];
+  }
+  return normalized === '0' ? 'dysza' : normalized;
+}
+
+function getStationPunchNumbersForValidation(config, stationValue) {
+  const normalizedStationValue = normalizeStationValueForValidation(stationValue);
+  if (!normalizedStationValue || normalizedStationValue === 'dysza') return [];
+
+  const stationIndex = Number.parseInt(normalizedStationValue, 10) - 1;
+  if (!Number.isFinite(stationIndex) || stationIndex < 0) return [];
+
+  const stations = Array.isArray(config?.stations) ? config.stations : [];
+  const station = stations[stationIndex];
+  if (!station || !Array.isArray(station.punches)) return [];
+
+  return station.punches
+    .map((punch) => String(punch?.number ?? '').replace(/[^\d]/g, '').trim())
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function buildSyncWybijakValue(firstPart, secondPart) {
+  const first = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
+  const second = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
+  if (!first || !second) return '';
+  if (first.length === 1 && second.length === 1) return `${first}0${second}`;
+  return `${first}${second}`;
+}
+
+function buildAlternatingWybijakValue(firstPart, secondPart) {
+  const syncValue = buildSyncWybijakValue(firstPart, secondPart);
+  if (!syncValue) return '';
+  const parsed = Number.parseInt(syncValue, 10);
+  if (!Number.isFinite(parsed)) return syncValue;
+  return String(parsed + 10000);
+}
+
+function getAcceptedWybijakValuesForPunchPair(firstPart, secondPart) {
+  const first = String(firstPart ?? '').replace(/[^\d]/g, '').trim();
+  const second = String(secondPart ?? '').replace(/[^\d]/g, '').trim();
+  const acceptedValues = new Set();
+  if (!first) return acceptedValues;
+
+  acceptedValues.add(first);
+  if (!second) return acceptedValues;
+
+  const syncValue = buildSyncWybijakValue(first, second);
+  const alternatingValue = buildAlternatingWybijakValue(first, second);
+  if (syncValue) acceptedValues.add(syncValue);
+  if (alternatingValue) acceptedValues.add(alternatingValue);
+
+  acceptedValues.add(`${first}0${second}`);
+  if (first === '10' && second === '11') acceptedValues.add('11110');
+  return acceptedValues;
 }
 
 const SQLCMD_COLUMN_SEPARATOR = '|';
@@ -1357,7 +1421,7 @@ function productSavePlugin() {
             return;
           }
 
-          const wybijakValidationError = getRecipeWybijakValidationError(rows, appConfig?.settings?.machinePunchCount);
+          const wybijakValidationError = getRecipeWybijakValidationError(rows, appConfig);
           if (wybijakValidationError) {
             sendJson(res, 400, { error: wybijakValidationError });
             return;
@@ -1412,7 +1476,7 @@ function productSavePlugin() {
             return;
           }
 
-          const wybijakValidationError = getRecipeWybijakValidationError(rows, appConfig?.settings?.machinePunchCount);
+          const wybijakValidationError = getRecipeWybijakValidationError(rows, appConfig);
           if (wybijakValidationError) {
             sendJson(res, 400, { error: wybijakValidationError });
             return;
