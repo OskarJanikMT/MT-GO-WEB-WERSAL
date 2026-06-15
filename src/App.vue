@@ -9393,8 +9393,25 @@ const RecipePreviewTable = defineComponent({
                     [
                       h('td', rowIndex + 1),
                       ...props.columns.map((column) => {
+                        const resolvedPunchActionValue = resolveStoredPunchAction(
+                          row?.DzialanieWybijakow,
+                          row?.Stanowisko ?? row?.stanowisko ?? '',
+                          row?.dlugosc ?? row?.Dlugosc ?? row?.['Długość'] ?? '',
+                          row?.wybijak ?? row?.Wybijak ?? '',
+                        );
+                        const resolvedWybijakValue = row?.wybijak ?? row?.Wybijak ?? '';
+                        const resolvedWybijakDatabaseValue = buildWybijakValueFromParts(
+                          ...getWybijakInputParts(resolvedWybijakValue, row?.Stanowisko ?? row?.stanowisko ?? ''),
+                          resolvedPunchActionValue,
+                        ) || resolvedWybijakValue;
                         if (!props.isEditMode) {
-                          return h('td', row[column] ?? '');
+                          const displayValue =
+                            column === 'wybijak'
+                              ? resolvedWybijakDatabaseValue
+                              : column === 'DzialanieWybijakow'
+                                ? getPunchActionDisplayValue(resolvedPunchActionValue)
+                                : (row[column] ?? '');
+                          return h('td', displayValue);
                         }
 
                         if (isDropdownColumn(column) || isStationColumn(column) || isPunchActionColumn(column)) {
@@ -9407,10 +9424,10 @@ const RecipePreviewTable = defineComponent({
                             h(
                               'select',
                               {
-                                key: isPunchActionColumn(column) ? `${row._localId ?? row.idSkladowej ?? rowIndex}-${column}-${row[column] ?? ''}` : undefined,
+                                key: isPunchActionColumn(column) ? `${row._localId ?? row.idSkladowej ?? rowIndex}-${column}-${resolvedPunchActionValue}` : undefined,
                                 class: 'edit-input recipe-preview-input',
-                                value: row[column] ?? '',
-                                style: getRecipePreviewEditInputStyle(column, row[column]),
+                                value: isPunchActionColumn(column) ? resolvedPunchActionValue : (row[column] ?? ''),
+                                style: getRecipePreviewEditInputStyle(column, isPunchActionColumn(column) ? resolvedPunchActionValue : row[column]),
                                 onInput: (event) => updateRecipePreviewCell(row._localId, column, event.target.value),
                               },
                               [
@@ -9424,7 +9441,7 @@ const RecipePreviewTable = defineComponent({
                         }
 
                         if (column === 'wybijak') {
-                          const [firstPart, secondPart] = getWybijakInputParts(row[column], row.Stanowisko);
+                          const [firstPart, secondPart] = getWybijakInputParts(resolvedWybijakValue, row.Stanowisko);
                           return h('td', [
                             h('div', { class: 'wybijak-edit-group' }, [
                               ...(isDyszaStationValue(row.Stanowisko)
