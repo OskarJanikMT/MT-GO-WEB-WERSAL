@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_PRODUCTS_DIR = path.join(__dirname, 'Produkty');
+const DEFAULT_REPORTS_DIR = path.join(__dirname, 'Raporty');
 const recipesWorkbookPath = path.join(__dirname, 'receptury.xlsx');
 const legacyRecipesFilePath = path.join(__dirname, 'receptury.json');
 const configFilePath = path.join(__dirname, 'config.json');
@@ -59,6 +60,7 @@ const RECIPE_ROW_EXPORT_COLUMNS = [
 ];
 const defaultAppConfig = {
   productsDirectory: DEFAULT_PRODUCTS_DIR,
+  reportsDirectory: DEFAULT_REPORTS_DIR,
   stations: [],
   activeMachineId: 'machine-1',
   settings: {
@@ -162,6 +164,11 @@ function normalizeProductsDirectory(value) {
   return path.resolve(rawValue || DEFAULT_PRODUCTS_DIR);
 }
 
+function normalizeReportsDirectory(value) {
+  const rawValue = String(value ?? '').trim();
+  return path.resolve(rawValue || DEFAULT_REPORTS_DIR);
+}
+
 function normalizeAppConfig(config) {
   const baseConfig = config && typeof config === 'object' ? config : defaultAppConfig;
   const rawSettings = baseConfig?.settings && typeof baseConfig.settings === 'object' ? baseConfig.settings : {};
@@ -178,6 +185,7 @@ function normalizeAppConfig(config) {
     ...defaultAppConfig,
     ...baseConfig,
     productsDirectory: normalizeProductsDirectory(baseConfig?.productsDirectory),
+    reportsDirectory: normalizeReportsDirectory(baseConfig?.reportsDirectory),
     settings: normalizedSettings,
   };
 }
@@ -189,15 +197,22 @@ async function getProductsDirectory(configOverride = null) {
   return productsDirectory;
 }
 
-async function resolveUniqueProductFilePath(fileName, productsDirectory) {
+async function getReportsDirectory(configOverride = null) {
+  const config = configOverride ? normalizeAppConfig(configOverride) : await readAppConfig();
+  const reportsDirectory = normalizeReportsDirectory(config.reportsDirectory);
+  await fs.mkdir(reportsDirectory, { recursive: true });
+  return reportsDirectory;
+}
+
+async function resolveUniqueFilePath(fileName, targetDirectory, fallbackName) {
   const parsed = path.parse(fileName);
   const extension = parsed.ext || '.xlsx';
-  const baseName = parsed.name || 'Produkt';
+  const baseName = parsed.name || fallbackName;
   let candidate = `${baseName}${extension}`;
   let counter = 1;
 
   while (true) {
-    const filePath = path.join(productsDirectory, candidate);
+    const filePath = path.join(targetDirectory, candidate);
     try {
       await fs.access(filePath);
       candidate = `${baseName} (${counter})${extension}`;
@@ -206,6 +221,14 @@ async function resolveUniqueProductFilePath(fileName, productsDirectory) {
       return filePath;
     }
   }
+}
+
+async function resolveUniqueProductFilePath(fileName, productsDirectory) {
+  return resolveUniqueFilePath(fileName, productsDirectory, 'Produkt');
+}
+
+async function resolveUniqueReportFilePath(fileName, reportsDirectory) {
+  return resolveUniqueFilePath(fileName, reportsDirectory, 'Raport');
 }
 
 function createSqlLogPrefix(kind, sqlServer, sqlDatabase) {
@@ -1688,6 +1711,52 @@ function productSavePlugin() {
         }
       });
 
+      server.middlewares.use('/api/config/select-reports-directory', async (req, res) => {
+        if (req.method !== 'POST') {
+          sendJson(res, 405, { error: 'Method not allowed' });
+          return;
+        }
+
+        if (process.platform !== 'win32') {
+          sendJson(res, 501, { error: 'Wybór folderu jest dostępny tylko w środowisku Windows.' });
+          return;
+        }
+
+        try {
+          const args = [
+            '-NoProfile',
+            '-STA',
+            '-Command',
+            [
+              '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+              'Add-Type -AssemblyName System.Windows.Forms',
+              '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
+              "$dialog.Description = 'Wybierz folder docelowy dla raportów Excel'",
+              '$dialog.ShowNewFolderButton = $true',
+              'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {',
+              '  Write-Output $dialog.SelectedPath',
+              '}',
+            ].join('; '),
+          ];
+          const { stdout } = await execFileAsync('powershell.exe', args, { windowsHide: false, maxBuffer: 1024 * 1024 });
+          const selectedPath = String(stdout || '').trim();
+
+          if (!selectedPath) {
+            sendJson(res, 200, { cancelled: true });
+            return;
+          }
+
+          sendJson(res, 200, {
+            cancelled: false,
+            reportsDirectory: normalizeReportsDirectory(selectedPath),
+          });
+        } catch (error) {
+          const stderr = String(error?.stderr || '').trim();
+          const stdout = String(error?.stdout || '').trim();
+          sendJson(res, 500, { error: stderr || stdout || error.message || 'Nie udało się wybrać folderu.' });
+        }
+      });
+
       server.middlewares.use('/api/config', async (req, res) => {
         if (req.method === 'GET') {
           try {
@@ -1718,6 +1787,39 @@ function productSavePlugin() {
         }
 
         sendJson(res, 405, { error: 'Method not allowed' });
+      });
+
+      server.middlewares.use('/api/reports/save', async (req, res) => {
+        if (req.method !== 'POST') {
+          sendJson(res, 405, { error: 'Method not allowed' });
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const fileName = String(body?.fileName ?? '').trim();
+          const contentBase64 = String(body?.contentBase64 ?? '').trim();
+          if (!fileName.toLowerCase().endsWith('.xlsx')) {
+            sendJson(res, 400, { error: 'Nazwa raportu musi kończyć się na .xlsx.' });
+            return;
+          }
+          if (!contentBase64) {
+            sendJson(res, 400, { error: 'Brak zawartości raportu do zapisania.' });
+            return;
+          }
+
+          const reportsDirectory = await getReportsDirectory();
+          const targetPath = await resolveUniqueReportFilePath(fileName, reportsDirectory);
+          await fs.writeFile(targetPath, Buffer.from(contentBase64, 'base64'));
+          sendJson(res, 200, {
+            ok: true,
+            fileName: path.basename(targetPath),
+            filePath: targetPath,
+            reportsDirectory,
+          });
+        } catch (error) {
+          sendJson(res, 500, { error: error.message || 'Nie udało się zapisać raportu do folderu.' });
+        }
       });
 
       server.middlewares.use('/api/workmain/upload', async (req, res) => {

@@ -913,6 +913,55 @@ button {
   background: var(--accent-soft);
 }
 
+.report-history-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.report-history-table tbody tr:hover {
+  background: transparent;
+}
+
+.report-history-header-row-1 td {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--text-heading);
+  font-weight: 700;
+  border-bottom: 0;
+}
+
+.report-history-header-row-2 td {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--text-heading);
+  font-weight: 700;
+  border-bottom: 0;
+}
+
+.report-history-header-row-3 td {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--text-heading);
+  font-weight: 700;
+  border-bottom: 0;
+}
+
+.report-history-header-row-4 td {
+  background: rgba(236, 72, 153, 0.12);
+  color: var(--text-heading);
+  font-weight: 700;
+  border-bottom: 0;
+}
+
+.report-history-header-cell {
+  height: 40px;
+}
+
+.report-history-header-main {
+  border-top-left-radius: 12px;
+}
+
+.report-history-header-meta {
+  border-top-right-radius: 12px;
+}
+
 .produkcja-container .data-table tbody tr {
   cursor: pointer;
 }

@@ -246,6 +246,34 @@
                 <article class="config-station-card">
                   <div class="config-station-header">
                     <div class="config-station-title-wrap">
+                      <span class="config-station-title">Folder raportów Excel</span>
+                    </div>
+                    <div class="config-station-actions">
+                      <button class="tool-btn compact" :disabled="isSelectingReportsDirectory" @click="selectReportsDirectory">
+                        {{ isSelectingReportsDirectory ? 'Otwieranie...' : 'Wybierz folder' }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="config-punch-list">
+                    <div class="config-punch-row config-machine-row">
+                      <span class="config-punch-label">Ścieżka</span>
+                      <input
+                        class="text-input config-punch-input config-products-directory-input"
+                        :value="configReportsDirectory"
+                        placeholder="\\\\serwer\\udział\\Raporty lub C:\\Raporty"
+                        @input="updateConfigReportsDirectory($event.target.value)"
+                      />
+                    </div>
+                    <div class="panel-caption">
+                      Do tego folderu aplikacja zapisuje eksporty raportów Excel. Ścieżka może wskazywać także folder sieciowy.
+                    </div>
+                  </div>
+                </article>
+
+                <article class="config-station-card">
+                  <div class="config-station-header">
+                    <div class="config-station-title-wrap">
                       <span class="config-station-title">Ustawienia ograniczeń</span>
                     </div>
                   </div>
@@ -1464,7 +1492,7 @@
           <div class="section-header">
             <div>
               <h2 class="section-title">Raporty</h2>
-              <p class="section-subtitle">Eksport raportu Excel z aktualnej bazy danych albo z wybranych odłożonych prac.</p>
+              <p class="section-subtitle">Eksport raportu Excel historii wyciętych w wybranym zakresie dat i godzin.</p>
             </div>
           </div>
 
@@ -1481,39 +1509,53 @@
 
             <div class="recipe-library-filters">
               <label class="rename-field">
-                <span>Źródło raportu</span>
-                <select v-model="reportSourceMode" class="select-input recipe-filter-select">
-                  <option value="current">Aktualna baza danych</option>
-                  <option value="saved">Wybrane odłożone prace</option>
-                </select>
+                <span>Data od</span>
+                <input v-model="reportStartDate" class="text-input" type="date" :min="reportMinDate" :max="reportMaxDate" />
+              </label>
+              <label class="rename-field">
+                <span>Godzina od</span>
+                <input v-model="reportStartTime" class="text-input" type="time" step="60" />
+              </label>
+              <label class="rename-field">
+                <span>Data do</span>
+                <input v-model="reportEndDate" class="text-input" type="date" :min="reportMinDate" :max="reportMaxDate" />
+              </label>
+              <label class="rename-field">
+                <span>Godzina do</span>
+                <input v-model="reportEndTime" class="text-input" type="time" step="60" />
               </label>
             </div>
 
-            <div v-if="reportSourceMode === 'current'" class="expanded-empty">
-              Raport zostanie wygenerowany z aktualnie wczytanych wierszy `WorkMain` z bazy danych.
-              Znaleziono: <strong>{{ activeWorkRows.length }}</strong> aktywnych pozycji.
+            <div class="single-element-summary report-saved-summary">
+              <span>Zdarzenia wycięcia w zakresie: {{ filteredCutHistoryEntries.length }}</span>
+              <span>Unikalne deski: {{ filteredCutHistoryUniqueBoardCount }}</span>
+              <span>Łącznie wycięte: {{ reportHistoryGrandTotal }}</span>
             </div>
+            <div v-if="!filteredCutHistoryEntries.length" class="expanded-empty">Brak zapisanej historii cięcia w wybranym zakresie.</div>
 
-            <div v-else>
-              <div class="single-element-summary report-saved-summary">
-                <span>Dostępne odłożone prace: {{ savedRows.length }}</span>
-                <span>Zaznaczone: {{ selectedReportSavedWorkCount }}</span>
-              </div>
-              <div v-if="savedRows.length" class="single-element-list report-saved-list">
-                <div v-for="row in savedRows" :key="`report-${row.idRap}`" class="single-element-row">
-                  <label class="single-element-check">
-                    <input
-                      type="checkbox"
-                      :checked="isReportSavedWorkSelected(row.idRap)"
-                      @change="toggleReportSavedWork(row.idRap, $event.target.checked)"
-                    />
-                    <span class="single-element-row-text">
-                      {{ row.NazwaRec || 'Odłożona praca' }} | {{ row.Wiersze || 0 }} pozycji | {{ row.CzasOdloz || 'Brak daty' }}
-                    </span>
-                  </label>
-                </div>
-              </div>
-              <div v-else class="expanded-empty">Brak odłożonych prac do raportu.</div>
+            <div v-if="reportHistoryGroupedRecipes.length" class="table-wrap">
+              <table class="data-table report-history-table">
+                <thead>
+                  <tr>
+                    <th v-for="column in reportPreviewColumns" :key="`history-${column}`">{{ column }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="(group, groupIndex) in reportHistoryGroupedRecipes" :key="group.key">
+                    <tr class="report-history-header-row" :class="`report-history-header-row-${(groupIndex % 4) + 1}`">
+                      <td class="report-history-header-cell report-history-header-main">{{ group.recipeName }}</td>
+                      <td class="report-history-header-cell">
+                        Wgrano: {{ group.loadedAt ? new Date(group.loadedAt).toLocaleString('pl-PL') : 'brak danych' }}
+                      </td>
+                      <td class="report-history-header-cell">Suma wyciętych: {{ group.totalCut }}</td>
+                      <td class="report-history-header-cell report-history-header-meta">Pozycji: {{ group.previewRows.length }}</td>
+                    </tr>
+                    <tr v-for="(row, rowIndex) in group.previewRows" :key="`${group.key}-row-${rowIndex}`">
+                      <td v-for="column in reportPreviewColumns" :key="`${group.key}-${column}-${rowIndex}`">{{ row[column] }}</td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -2043,7 +2085,12 @@ const PRODUCT_PREVIEW_STORAGE_KEY = 'mt-go-web:selected-product-preview';
 const TEMP_PRODUCT_KEY = '__TEMP_PRODUCT__';
 const TEMP_EMPTY_PRODUCT_PREFIX = '__TEMP_EMPTY_PRODUCT__';
 const SAVED_ROWS_STORAGE_KEY = 'mt-go-web:saved-rows';
+const CUT_HISTORY_STORAGE_KEY = 'mt-go-web:cut-history';
+const ACTIVE_RECIPE_SESSION_STORAGE_KEY = 'mt-go-web:active-recipe-session';
+const CUT_HISTORY_COLLECTOR_LOCK_KEY = 'mt-go-web:cut-history-collector-lock';
 const UI_SETTINGS_STORAGE_KEY = 'mt-go-web:ui-settings';
+const CUT_HISTORY_LOCK_TIMEOUT_MS = 15000;
+const CUT_HISTORY_HEARTBEAT_INTERVAL_MS = 4000;
 
 const tabs = [
   { id: 'products', label: '1. Twoje Produkty' },
@@ -2307,6 +2354,7 @@ const activeConfigTab = ref('stations');
 const configStations = ref([]);
 const configMachines = ref([]);
 const configProductsDirectory = ref('');
+const configReportsDirectory = ref('');
 const configSettings = ref({
   printTextMaxLength: DEFAULT_PRINT_TEXT_MAX_LENGTH,
   boardMaxLength: DEFAULT_BOARD_MAX_LENGTH,
@@ -2316,7 +2364,7 @@ const configSettings = ref({
 });
 const favoriteElements = ref([]);
 const activeMachineId = ref('machine-1');
-const savedConfigSnapshot = ref('{"productsDirectory":"","stations":[],"settings":{"printTextMaxLength":100,"boardMaxLength":3500,"maxQuantity":10000,"machinePunchCount":6,"activeExcelColumns":["Nazwa","Kod","Długość","Grubość","Szerokość","Materiał","ilość","Wybijak","Klasa","Stanowisko"]},"activeMachineId":"machine-1","machines":[{"id":"machine-1","name":"Maszyna 1","rowLimit":500}],"favoriteElements":[]}');
+const savedConfigSnapshot = ref('{"productsDirectory":"","reportsDirectory":"","stations":[],"settings":{"printTextMaxLength":100,"boardMaxLength":3500,"maxQuantity":10000,"machinePunchCount":6,"activeExcelColumns":["Nazwa","Kod","Długość","Grubość","Szerokość","Materiał","ilość","Wybijak","Klasa","Stanowisko"]},"activeMachineId":"machine-1","machines":[{"id":"machine-1","name":"Maszyna 1","rowLimit":500}],"favoriteElements":[]}');
 const isConfigSaving = ref(false);
 const isSelectingProductsDirectory = ref(false);
 const isConfigLoaded = ref(false);
@@ -2374,11 +2422,15 @@ const selectedRecipePreviewName = ref('');
 const recipeCatalogSearch = ref('');
 const recipeCatalogMaterialFilter = ref('');
 const recipeCatalogUsageFilter = ref('all');
-const reportSourceMode = ref('current');
-const selectedReportSavedWorkIds = ref([]);
+const reportStartDate = ref('');
+const reportStartTime = ref('00:00');
+const reportEndDate = ref('');
+const reportEndTime = ref('23:59');
 const reportMessage = ref('');
 const reportError = ref(false);
 const isReportExportLoading = ref(false);
+const isCutHistoryCollector = ref(false);
+const activeRecipeSession = ref(loadActiveRecipeSession());
 const selectedRecipeNames = ref([]);
 const recipeCatalogActionMessage = ref('');
 const recipeCatalogActionError = ref(false);
@@ -2431,6 +2483,7 @@ const workCorrectionDrafts = ref({});
 const isFileActionLoading = ref(false);
 const productFileActionMessage = ref('');
 const productFileActionError = ref(false);
+const isSelectingReportsDirectory = ref(false);
 const isRenameMode = ref(false);
 const renameDraft = ref('');
 const editingRows = ref([]);
@@ -2512,6 +2565,11 @@ const workRows = ref([]);
 
 const defaultSavedRows = [];
 const savedRows = ref(loadSavedRows());
+const cutHistoryEntries = ref(loadCutHistoryEntries());
+const cutHistoryCollectorInstanceId = createCutHistoryCollectorInstanceId();
+let hasObservedWorkMainSnapshot = false;
+let previousObservedWorkMainRowsByKey = new Map();
+let cutHistoryCollectorHeartbeatTimerId = null;
 
 function isElementVisible(element) {
   if (!(element instanceof HTMLElement)) return false;
@@ -2815,13 +2873,70 @@ const filteredWorkRecipeNames = computed(() => {
 const selectedSavedWorkPreview = computed(
   () => savedRows.value.find((row) => String(row.idRap) === String(savedWorkPreviewId.value)) || null,
 );
-const selectedReportSavedWorkRows = computed(() =>
-  savedRows.value.filter((row) => selectedReportSavedWorkIds.value.includes(String(row.idRap))),
+const reportRangeLimitStart = computed(() => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - 2);
+  date.setHours(0, 0, 0, 0);
+  return date;
+});
+const reportRangeNow = computed(() => {
+  const date = new Date();
+  date.setSeconds(59, 999);
+  return date;
+});
+const reportMinDate = computed(() => formatDateInputValue(reportRangeLimitStart.value));
+const reportMaxDate = computed(() => formatDateInputValue(reportRangeNow.value));
+const filteredCutHistoryEntries = computed(() => {
+  const range = getReportRange();
+  if (!range) return [];
+  return cutHistoryEntries.value.filter((entry) => {
+    const timestamp = parseSavedWorkTimestamp(entry?.timestamp);
+    if (!timestamp) return false;
+    return timestamp >= range.start && timestamp <= range.end;
+  });
+});
+const filteredCutHistoryUniqueBoardCount = computed(() =>
+  new Set(
+    filteredCutHistoryEntries.value.map((entry) =>
+      [entry?.TekstDoDruku ?? '', entry?.Dlugosc ?? '', entry?.Szerokosc ?? '', entry?.Grubosc ?? ''].join('__'),
+    ),
+  ).size,
 );
-const selectedReportSavedWorkCount = computed(() => selectedReportSavedWorkRows.value.length);
-const canExportReport = computed(() =>
-  reportSourceMode.value === 'current' ? activeWorkRows.value.length > 0 : selectedReportSavedWorkCount.value > 0,
+const reportHistoryGroupedRecipes = computed(() => {
+  const grouped = new Map();
+
+  filteredCutHistoryEntries.value.forEach((entry) => {
+    const groupKey = String(entry?.recipeSessionId || `${entry?.recipeName || 'Bez receptury'}__${entry?.recipeLoadedAt || 'brak-daty'}`);
+    const current = grouped.get(groupKey) || {
+      key: groupKey,
+      recipeName: String(entry?.recipeName || 'Bez przypisanej receptury'),
+      loadedAt: String(entry?.recipeLoadedAt || ''),
+      totalCut: 0,
+      rows: [],
+    };
+    current.totalCut += normalizeWorkCorrectionValue(entry?.WykonaneSztuki);
+    current.rows.push(entry);
+    grouped.set(groupKey, current);
+  });
+
+  return [...grouped.values()]
+    .map((group) => ({
+      ...group,
+      previewRows: aggregateReportRows(group.rows),
+    }))
+    .sort((left, right) => String(right.loadedAt || '').localeCompare(String(left.loadedAt || '')));
+});
+const reportHistoryGrandTotal = computed(() =>
+  reportHistoryGroupedRecipes.value.reduce((sum, group) => sum + normalizeWorkCorrectionValue(group.totalCut), 0),
 );
+const reportPreviewColumns = [
+  'Kod / Tekst do druku',
+  'Wymiar [długość x szerokość x grubość]',
+  'Ilość sztuk wyciętych',
+  'Cel sztuk',
+];
+const reportPreviewRows = computed(() => aggregateReportRows(getReportSourceRows()));
+const canExportReport = computed(() => filteredCutHistoryEntries.value.length > 0);
 const savedWorkPreviewRows = computed(() => {
   if (!selectedSavedWorkPreview.value?.rows) return [];
   try {
@@ -2893,6 +3008,7 @@ const machineStatusLabel = computed(() => (isMachineWorking.value ? 'Maszyna pra
 const machineStatusBadgeClass = computed(() => (isMachineWorking.value ? 'online' : 'offline'));
 const configPayload = computed(() => ({
   productsDirectory: String(configProductsDirectory.value ?? '').trim(),
+  reportsDirectory: String(configReportsDirectory.value ?? '').trim(),
   stations: configStations.value.map((station) => ({
     id: station.id,
     punches: station.punches.map((punch) => ({
@@ -3993,6 +4109,194 @@ function loadSavedRows() {
   }
 }
 
+function createCutHistoryCollectorInstanceId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `collector-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createRecipeSessionId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `recipe-session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getCutHistoryRetentionStart(baseDate = new Date()) {
+  const date = new Date(baseDate);
+  date.setMonth(date.getMonth() - 2);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function sanitizeCutHistoryEntries(entries = []) {
+  const retentionStart = getCutHistoryRetentionStart();
+  return entries
+    .map((entry) => {
+      const timestamp = parseSavedWorkTimestamp(entry?.timestamp);
+      const cutCount = normalizeWorkCorrectionValue(entry?.WykonaneSztuki ?? entry?.cutCount ?? 0);
+      if (!timestamp || timestamp < retentionStart || cutCount <= 0) return null;
+      return {
+        timestamp: timestamp.toISOString(),
+        rowId: Number.parseInt(entry?.rowId ?? entry?.id ?? 0, 10) || 0,
+        recipeSessionId: String(entry?.recipeSessionId ?? '').trim(),
+        recipeName: String(entry?.recipeName ?? entry?.NazwaRec ?? '').trim(),
+        recipeLoadedAt: String(entry?.recipeLoadedAt ?? '').trim(),
+        TekstDoDruku: String(entry?.TekstDoDruku ?? entry?.Kod ?? '').trim(),
+        Nazwa: String(entry?.Nazwa ?? '').trim(),
+        Material: String(entry?.Material ?? '').trim(),
+        Przekroj: String(entry?.Przekroj ?? '').trim(),
+        Dlugosc: normalizeWorkCorrectionValue(entry?.Dlugosc),
+        Szerokosc: normalizeWorkCorrectionValue(entry?.Szerokosc),
+        Grubosc: normalizeWorkCorrectionValue(entry?.Grubosc),
+        Stanowisko: String(entry?.Stanowisko ?? '').trim(),
+        WykonaneSztuki: cutCount,
+        Sztuk: cutCount,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => String(left.timestamp).localeCompare(String(right.timestamp)));
+}
+
+function loadCutHistoryEntries() {
+  try {
+    const rawValue = window.localStorage.getItem(CUT_HISTORY_STORAGE_KEY);
+    if (!rawValue) return [];
+    const parsedValue = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) return [];
+    return sanitizeCutHistoryEntries(parsedValue);
+  } catch {
+    return [];
+  }
+}
+
+function sanitizeActiveRecipeSession(value) {
+  if (!value || typeof value !== 'object') return null;
+  const loadedAt = parseSavedWorkTimestamp(value.loadedAt);
+  const recipeName = String(value.recipeName ?? '').trim();
+  const recipeSignature = String(value.recipeSignature ?? '').trim();
+  if (!loadedAt || !recipeName || !recipeSignature) return null;
+  return {
+    sessionId: String(value.sessionId ?? '').trim() || createRecipeSessionId(),
+    recipeName,
+    recipeNames: Array.isArray(value.recipeNames) ? value.recipeNames.map((entry) => String(entry ?? '').trim()).filter(Boolean) : [recipeName],
+    recipeSignature,
+    loadedAt: loadedAt.toISOString(),
+    rowCount: normalizeWorkCorrectionValue(value.rowCount ?? 0),
+    totalTarget: normalizeWorkCorrectionValue(value.totalTarget ?? 0),
+  };
+}
+
+function loadActiveRecipeSession() {
+  try {
+    const rawValue = window.localStorage.getItem(ACTIVE_RECIPE_SESSION_STORAGE_KEY);
+    if (!rawValue) return null;
+    return sanitizeActiveRecipeSession(JSON.parse(rawValue));
+  } catch {
+    return null;
+  }
+}
+
+function readCutHistoryCollectorLock() {
+  try {
+    const rawValue = window.localStorage.getItem(CUT_HISTORY_COLLECTOR_LOCK_KEY);
+    if (!rawValue) return null;
+    const parsedValue = JSON.parse(rawValue);
+    const instanceId = String(parsedValue?.instanceId ?? '').trim();
+    const heartbeatAt = Number(parsedValue?.heartbeatAt ?? 0);
+    if (!instanceId || !Number.isFinite(heartbeatAt) || heartbeatAt <= 0) return null;
+    return { instanceId, heartbeatAt };
+  } catch {
+    return null;
+  }
+}
+
+function isCutHistoryCollectorLockFresh(lock, now = Date.now()) {
+  if (!lock) return false;
+  return now - Number(lock.heartbeatAt) < CUT_HISTORY_LOCK_TIMEOUT_MS;
+}
+
+function writeCutHistoryCollectorLock(heartbeatAt = Date.now()) {
+  window.localStorage.setItem(
+    CUT_HISTORY_COLLECTOR_LOCK_KEY,
+    JSON.stringify({
+      instanceId: cutHistoryCollectorInstanceId,
+      heartbeatAt,
+    }),
+  );
+}
+
+function tryAcquireCutHistoryCollectorLock() {
+  const now = Date.now();
+  const currentLock = readCutHistoryCollectorLock();
+  if (
+    currentLock &&
+    currentLock.instanceId !== cutHistoryCollectorInstanceId &&
+    isCutHistoryCollectorLockFresh(currentLock, now)
+  ) {
+    isCutHistoryCollector.value = false;
+    return false;
+  }
+
+  writeCutHistoryCollectorLock(now);
+  const confirmedLock = readCutHistoryCollectorLock();
+  const acquired = confirmedLock?.instanceId === cutHistoryCollectorInstanceId;
+  isCutHistoryCollector.value = acquired;
+  return acquired;
+}
+
+function refreshCutHistoryCollectorLock() {
+  const currentLock = readCutHistoryCollectorLock();
+  if (currentLock?.instanceId !== cutHistoryCollectorInstanceId) {
+    return tryAcquireCutHistoryCollectorLock();
+  }
+
+  writeCutHistoryCollectorLock(Date.now());
+  isCutHistoryCollector.value = true;
+  return true;
+}
+
+function releaseCutHistoryCollectorLock() {
+  const currentLock = readCutHistoryCollectorLock();
+  if (currentLock?.instanceId === cutHistoryCollectorInstanceId) {
+    window.localStorage.removeItem(CUT_HISTORY_COLLECTOR_LOCK_KEY);
+  }
+  isCutHistoryCollector.value = false;
+}
+
+function startCutHistoryCollectorHeartbeat() {
+  refreshCutHistoryCollectorLock();
+  if (cutHistoryCollectorHeartbeatTimerId) return;
+  cutHistoryCollectorHeartbeatTimerId = window.setInterval(() => {
+    refreshCutHistoryCollectorLock();
+  }, CUT_HISTORY_HEARTBEAT_INTERVAL_MS);
+}
+
+function stopCutHistoryCollectorHeartbeat() {
+  if (cutHistoryCollectorHeartbeatTimerId) {
+    window.clearInterval(cutHistoryCollectorHeartbeatTimerId);
+    cutHistoryCollectorHeartbeatTimerId = null;
+  }
+  releaseCutHistoryCollectorLock();
+}
+
+function handleCutHistoryStorageSync(event) {
+  if (event.key === CUT_HISTORY_STORAGE_KEY) {
+    cutHistoryEntries.value = loadCutHistoryEntries();
+    return;
+  }
+
+  if (event.key === ACTIVE_RECIPE_SESSION_STORAGE_KEY) {
+    activeRecipeSession.value = loadActiveRecipeSession();
+    return;
+  }
+
+  if (event.key !== CUT_HISTORY_COLLECTOR_LOCK_KEY) return;
+  const currentLock = readCutHistoryCollectorLock();
+  isCutHistoryCollector.value = currentLock?.instanceId === cutHistoryCollectorInstanceId;
+}
+
 function loadAnimationsEnabledSetting() {
   try {
     const rawValue = window.localStorage.getItem(UI_SETTINGS_STORAGE_KEY);
@@ -4026,6 +4330,77 @@ function persistSavedRows() {
   } catch {
     // Ignore storage errors.
   }
+}
+
+function persistCutHistoryEntries() {
+  try {
+    const sanitizedEntries = sanitizeCutHistoryEntries(cutHistoryEntries.value);
+    cutHistoryEntries.value = sanitizedEntries;
+    window.localStorage.setItem(CUT_HISTORY_STORAGE_KEY, JSON.stringify(sanitizedEntries));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function persistActiveRecipeSession() {
+  try {
+    const sanitizedSession = sanitizeActiveRecipeSession(activeRecipeSession.value);
+    activeRecipeSession.value = sanitizedSession;
+    if (!sanitizedSession) {
+      window.localStorage.removeItem(ACTIVE_RECIPE_SESSION_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(ACTIVE_RECIPE_SESSION_STORAGE_KEY, JSON.stringify(sanitizedSession));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function buildRecipeSessionFromRows(rows = [], loadedAt = new Date()) {
+  const payloads = rows
+    .map((row, index) => getWorkRowPayload(row, index))
+    .filter((payload) => String(payload.NazwaRec ?? '').trim());
+  if (!payloads.length) return null;
+
+  const recipeNames = [...new Set(payloads.map((payload) => String(payload.NazwaRec ?? '').trim()).filter(Boolean))];
+  const recipeName = recipeNames.length === 1 ? recipeNames[0] : recipeNames.join(', ');
+  const recipeSignature = payloads
+    .map((payload) =>
+      [
+        String(payload.NazwaRec ?? '').trim(),
+        String(payload.TekstDoDruku ?? '').trim(),
+        normalizeWorkCorrectionValue(payload.Dlugosc),
+        normalizeWorkCorrectionValue(payload.Szerokosc),
+        normalizeWorkCorrectionValue(payload.Grubosc),
+        normalizeWorkCorrectionValue(payload.Sztuk),
+      ].join('__'),
+    )
+    .sort()
+    .join('|||');
+
+  return sanitizeActiveRecipeSession({
+    sessionId: createRecipeSessionId(),
+    recipeName,
+    recipeNames,
+    recipeSignature,
+    loadedAt: loadedAt.toISOString(),
+    rowCount: payloads.length,
+    totalTarget: payloads.reduce((sum, payload) => sum + normalizeWorkCorrectionValue(payload.Sztuk), 0),
+  });
+}
+
+function rememberActiveRecipeSession(rows = [], loadedAt = new Date()) {
+  const nextSession = buildRecipeSessionFromRows(rows, loadedAt);
+  if (!nextSession) return;
+  if (
+    activeRecipeSession.value &&
+    activeRecipeSession.value.recipeSignature === nextSession.recipeSignature &&
+    activeRecipeSession.value.recipeName === nextSession.recipeName
+  ) {
+    return;
+  }
+  activeRecipeSession.value = nextSession;
+  persistActiveRecipeSession();
 }
 
 function openPostponeWorkDialog() {
@@ -4259,6 +4634,8 @@ async function loadWorkMainRows({ preserveDisabled = true, preserveLocalDrafts =
   }
 
   const activeRows = Array.isArray(payload.rows) ? payload.rows.map((row, index) => normalizeWorkRow(row, index)) : [];
+  const observedAt = new Date();
+  rememberObservedWorkMainCuts(activeRows, observedAt);
   const disabledRowIds = new Set(disabledRows.map((row, index) => Number(getWorkRowPayload(row, index).id)).filter((id) => Number.isFinite(id) && id > 0));
   const visibleDatabaseRows = disabledRowIds.size
     ? activeRows.filter((row, index) => !disabledRowIds.has(Number(getWorkRowPayload(row, index).id)))
@@ -4274,7 +4651,7 @@ async function loadWorkMainRows({ preserveDisabled = true, preserveLocalDrafts =
   workRows.value = [...visibleDatabaseRows, ...reconciledLocalDraftRows, ...disabledRows];
   syncWorkTableSourceFromRows(activeRows);
   workRowsSnapshot.value = serializeWorkRows([...activeRows, ...disabledRows]);
-  workMainLastRefreshAt.value = new Date();
+  workMainLastRefreshAt.value = observedAt;
 }
 
 async function refreshWorkMainRowsManually() {
@@ -4553,6 +4930,7 @@ function normalizeLoadedConfigMachine(machine, index = 0) {
 
 function applyLoadedConfig(config) {
   const productsDirectory = String(config?.productsDirectory || '').trim();
+  const reportsDirectory = String(config?.reportsDirectory || '').trim();
   const loadedSettings = config?.settings && typeof config.settings === 'object' ? config.settings : {};
   const settings = {
     printTextMaxLength: Math.max(1, normalizeWorkCorrectionValue(loadedSettings.printTextMaxLength || DEFAULT_PRINT_TEXT_MAX_LENGTH)),
@@ -4571,6 +4949,7 @@ function applyLoadedConfig(config) {
     ? config.favoriteElements.map((entry) => normalizeLoadedFavoriteElement(entry))
     : [];
   configProductsDirectory.value = productsDirectory;
+  configReportsDirectory.value = reportsDirectory;
   configSettings.value = settings;
   configStations.value = stations;
   configMachines.value = machines;
@@ -4580,6 +4959,7 @@ function applyLoadedConfig(config) {
     : machines[0].id;
   savedConfigSnapshot.value = JSON.stringify({
     productsDirectory,
+    reportsDirectory,
     stations: stations.map((station) => ({
       id: station.id,
       punches: station.punches.map((punch) => ({ id: punch.id, number: String(punch.number ?? '') })),
@@ -4793,6 +5173,10 @@ function updateConfigProductsDirectory(value) {
   configProductsDirectory.value = String(value ?? '');
 }
 
+function updateConfigReportsDirectory(value) {
+  configReportsDirectory.value = String(value ?? '');
+}
+
 function updateConfigSetting(field, value) {
   const defaults = {
     printTextMaxLength: DEFAULT_PRINT_TEXT_MAX_LENGTH,
@@ -4850,6 +5234,46 @@ async function selectProductsDirectory() {
     configSaveMessage.value = error.message || 'Nie udało się wybrać folderu.';
   } finally {
     isSelectingProductsDirectory.value = false;
+  }
+}
+
+async function refreshReportHistorySnapshot() {
+  try {
+    await loadWorkMainRows();
+  } catch (error) {
+    reportError.value = true;
+    reportMessage.value = error?.message || 'Nie udało się odświeżyć historii wyciętych z bazy danych.';
+    throw error;
+  }
+}
+
+async function selectReportsDirectory() {
+  if (isSelectingReportsDirectory.value) return;
+
+  isSelectingReportsDirectory.value = true;
+  clearConfigSaveMessage();
+
+  try {
+    const response = await fetch('/api/config/select-reports-directory', {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Nie udało się wybrać folderu.');
+    }
+
+    if (payload.cancelled) return;
+
+    configReportsDirectory.value = String(payload.reportsDirectory || '');
+    configSaveError.value = false;
+    configSaveMessage.value = 'Wybrano folder raportów. Kliknij "Zapisz" u góry panelu, aby zapisać zmianę.';
+  } catch (error) {
+    configSaveError.value = true;
+    configSaveMessage.value = error.message || 'Nie udało się wybrać folderu.';
+  } finally {
+    isSelectingReportsDirectory.value = false;
   }
 }
 
@@ -7601,16 +8025,6 @@ async function loadSavedRecipes() {
   selectedRecipePreviewName.value = '';
 }
 
-watch(
-  savedRows,
-  () => {
-    selectedReportSavedWorkIds.value = selectedReportSavedWorkIds.value.filter((idRap) =>
-      savedRows.value.some((row) => String(row.idRap) === String(idRap)),
-    );
-  },
-  { deep: true },
-);
-
 function stepMergeProductQuantity(productName, delta) {
   lastMergeInteractedProduct.value = productName;
   const nextValue = Math.min(activeRowLimit.value, Math.max(0, getMergeProductQuantity(productName) + delta));
@@ -7724,15 +8138,145 @@ function clearReportMessage() {
   reportError.value = false;
 }
 
-function isReportSavedWorkSelected(idRap) {
-  return selectedReportSavedWorkIds.value.includes(String(idRap));
+function padDateTimeValue(value) {
+  return String(value).padStart(2, '0');
 }
 
-function toggleReportSavedWork(idRap, isChecked) {
-  const normalizedId = String(idRap);
-  selectedReportSavedWorkIds.value = isChecked
-    ? [...new Set([...selectedReportSavedWorkIds.value, normalizedId])]
-    : selectedReportSavedWorkIds.value.filter((entry) => entry !== normalizedId);
+function formatDateInputValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${padDateTimeValue(date.getMonth() + 1)}-${padDateTimeValue(date.getDate())}`;
+}
+
+function parseReportDateTimeInput(dateText, timeText, fallbackHour, fallbackMinute) {
+  if (!dateText) return null;
+  const [year, month, day] = String(dateText).split('-').map((value) => Number.parseInt(value, 10));
+  if (!year || !month || !day) return null;
+  const [hoursText, minutesText] = String(timeText || '').split(':');
+  const parsedHours = Number.parseInt(hoursText, 10);
+  const parsedMinutes = Number.parseInt(minutesText, 10);
+  const hours = Number.isFinite(parsedHours) ? parsedHours : fallbackHour;
+  const minutes = Number.isFinite(parsedMinutes) ? parsedMinutes : fallbackMinute;
+  return new Date(year, month - 1, day, hours, minutes, fallbackMinute === 59 ? 59 : 0, fallbackMinute === 59 ? 999 : 0);
+}
+
+function parseSavedWorkTimestamp(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return null;
+
+  const localizedMatch = normalized.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (localizedMatch) {
+    const [, dayText, monthText, yearText, hourText = '0', minuteText = '0', secondText = '0'] = localizedMatch;
+    const parsed = new Date(
+      Number.parseInt(yearText, 10),
+      Number.parseInt(monthText, 10) - 1,
+      Number.parseInt(dayText, 10),
+      Number.parseInt(hourText, 10),
+      Number.parseInt(minuteText, 10),
+      Number.parseInt(secondText, 10),
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(normalized.replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getReportRange() {
+  const start = parseReportDateTimeInput(reportStartDate.value, reportStartTime.value, 0, 0);
+  const end = parseReportDateTimeInput(reportEndDate.value, reportEndTime.value, 23, 59);
+  if (!start || !end) return null;
+
+  const minDate = reportRangeLimitStart.value;
+  const maxDate = reportRangeNow.value;
+  return {
+    start: start < minDate ? minDate : start,
+    end: end > maxDate ? maxDate : end,
+  };
+}
+
+function buildObservedCutKey(payload = {}) {
+  return [
+    String(payload.TekstDoDruku ?? '').trim(),
+    normalizeMaterialValue(payload.Material ?? ''),
+    String(payload.Nazwa ?? '').trim(),
+    normalizeWorkCorrectionValue(payload.Dlugosc),
+    normalizeWorkCorrectionValue(payload.Szerokosc),
+    normalizeWorkCorrectionValue(payload.Grubosc),
+  ].join('__');
+}
+
+function aggregateObservedWorkMainRows(rows = []) {
+  const aggregatedRowsByKey = new Map();
+
+  rows.forEach((row, index) => {
+    const payload = getWorkRowPayload(row, index);
+    const key = buildObservedCutKey(payload);
+    const current = aggregatedRowsByKey.get(key) || {
+      rowId: Number(payload.id) || 0,
+      TekstDoDruku: payload.TekstDoDruku ?? '',
+      Nazwa: payload.Nazwa ?? '',
+      Material: payload.Material ?? '',
+      Przekroj: payload.Przekroj ?? '',
+      Dlugosc: payload.Dlugosc ?? 0,
+      Szerokosc: payload.Szerokosc ?? 0,
+      Grubosc: payload.Grubosc ?? 0,
+      Stanowisko: payload.Stanowisko ?? '',
+      WykonaneSztuki: 0,
+      Sztuk: 0,
+    };
+
+    current.WykonaneSztuki += normalizeWorkCorrectionValue(payload.WykonaneSztuki);
+    current.Sztuk += normalizeWorkCorrectionValue(payload.Sztuk);
+    aggregatedRowsByKey.set(key, current);
+  });
+
+  return aggregatedRowsByKey;
+}
+
+function rememberObservedWorkMainCuts(rows, observedAt = new Date()) {
+  const nextRowsByKey = aggregateObservedWorkMainRows(rows);
+
+  if (!hasObservedWorkMainSnapshot) {
+    previousObservedWorkMainRowsByKey = nextRowsByKey;
+    hasObservedWorkMainSnapshot = true;
+    return;
+  }
+
+  const nextEntries = [];
+  nextRowsByKey.forEach((payload, key) => {
+    const previousPayload = previousObservedWorkMainRowsByKey.get(key);
+    if (!previousPayload) return;
+
+    const previousDone = normalizeWorkCorrectionValue(previousPayload.WykonaneSztuki);
+    const currentDone = normalizeWorkCorrectionValue(payload.WykonaneSztuki);
+    const delta = currentDone - previousDone;
+    if (delta <= 0) return;
+
+    nextEntries.push({
+      timestamp: observedAt.toISOString(),
+      rowId: payload.rowId ?? 0,
+      recipeSessionId: String(activeRecipeSession.value?.sessionId ?? '').trim(),
+      recipeName: String(activeRecipeSession.value?.recipeName ?? payload.NazwaRec ?? '').trim(),
+      recipeLoadedAt: String(activeRecipeSession.value?.loadedAt ?? '').trim(),
+      TekstDoDruku: payload.TekstDoDruku ?? '',
+      Nazwa: payload.Nazwa ?? '',
+      Material: payload.Material ?? '',
+      Przekroj: payload.Przekroj ?? '',
+      Dlugosc: payload.Dlugosc ?? 0,
+      Szerokosc: payload.Szerokosc ?? 0,
+      Grubosc: payload.Grubosc ?? 0,
+      Stanowisko: payload.Stanowisko ?? '',
+      WykonaneSztuki: delta,
+      Sztuk: delta,
+    });
+  });
+
+  previousObservedWorkMainRowsByKey = nextRowsByKey;
+
+  if (!nextEntries.length) return;
+  if (!refreshCutHistoryCollectorLock()) return;
+  cutHistoryEntries.value = sanitizeCutHistoryEntries([...cutHistoryEntries.value, ...nextEntries]);
+  persistCutHistoryEntries();
 }
 
 function buildReportDimensionLabel(row = {}) {
@@ -7810,6 +8354,129 @@ function applyReportWorksheetStyles(worksheet, rows) {
   });
 }
 
+function buildHistoryReportSheetMatrix() {
+  const rows = [];
+  rows.push(['Podsumowanie łączne', '', reportHistoryGrandTotal.value, '']);
+  rows.push([...reportPreviewColumns]);
+
+  const grandSummaryRows = aggregateReportRows(filteredCutHistoryEntries.value);
+  grandSummaryRows.forEach((row) => {
+    rows.push(reportPreviewColumns.map((column) => row[column] ?? ''));
+  });
+
+  reportHistoryGroupedRecipes.value.forEach((group) => {
+    rows.push([]);
+    rows.push([
+      group.recipeName,
+      `Wgrano: ${group.loadedAt ? new Date(group.loadedAt).toLocaleString('pl-PL') : 'brak danych'}`,
+      `Suma wyciętych: ${group.totalCut}`,
+      `Pozycji: ${group.previewRows.length}`,
+    ]);
+    rows.push([...reportPreviewColumns]);
+    group.previewRows.forEach((row) => {
+      rows.push(reportPreviewColumns.map((column) => row[column] ?? ''));
+    });
+  });
+
+  return rows;
+}
+
+function applyHistoryReportWorksheetStyles(worksheet, matrix) {
+  const columnCount = reportPreviewColumns.length;
+  const defaultCellStyle = {
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+  const summaryHeaderStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '163A63' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+  const recipePalette = ['1E3A8A', '166534', '9A3412', '9D174D'];
+  const tableHeaderStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '334155' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+  const oddRowStyle = {
+    fill: { fgColor: { rgb: 'F8FAFC' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+  const evenRowStyle = {
+    fill: { fgColor: { rgb: 'EEF2F7' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+  };
+
+  let paletteIndex = 0;
+  let dataStripeIndex = 0;
+
+  matrix.forEach((row, rowIndex) => {
+    const isEmpty = row.every((cell) => String(cell ?? '').trim() === '');
+    const isReportHeader = rowIndex === 0;
+    const isColumnHeader =
+      row.length >= columnCount &&
+      reportPreviewColumns.every((column, columnIndex) => String(row[columnIndex] ?? '') === column);
+    const isRecipeHeader = !isReportHeader && !isColumnHeader && !isEmpty && String(row[1] ?? '').startsWith('Wgrano:');
+
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      if (!worksheet[cellRef]) continue;
+      worksheet[cellRef].s = defaultCellStyle;
+    }
+
+    if (isEmpty) {
+      dataStripeIndex = 0;
+      return;
+    }
+
+    if (isReportHeader) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+        if (worksheet[cellRef]) {
+          worksheet[cellRef].s = summaryHeaderStyle;
+        }
+      }
+      return;
+    }
+
+    if (isRecipeHeader) {
+      const fillColor = recipePalette[paletteIndex % recipePalette.length];
+      paletteIndex += 1;
+      dataStripeIndex = 0;
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+        if (worksheet[cellRef]) {
+          worksheet[cellRef].s = {
+            font: { bold: true, color: { rgb: 'FFFFFF' } },
+            fill: { fgColor: { rgb: fillColor } },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+      return;
+    }
+
+    if (isColumnHeader) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+        if (worksheet[cellRef]) {
+          worksheet[cellRef].s = tableHeaderStyle;
+        }
+      }
+      dataStripeIndex = 0;
+      return;
+    }
+
+    const rowStyle = dataStripeIndex % 2 === 0 ? oddRowStyle : evenRowStyle;
+    dataStripeIndex += 1;
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      if (worksheet[cellRef]) {
+        worksheet[cellRef].s = rowStyle;
+      }
+    }
+  });
+}
+
 async function getStyledXlsx() {
   const module = await import('xlsx-js-style');
   const styledXlsx = module?.default ?? module;
@@ -7823,10 +8490,7 @@ async function getStyledXlsx() {
 }
 
 function getReportSourceRows() {
-  if (reportSourceMode.value === 'saved') {
-    return selectedReportSavedWorkRows.value.flatMap((snapshot) => parseSavedWorkRows(snapshot.rows).filter((row) => !row.__disabled));
-  }
-  return activeWorkRows.value.map((row) => normalizeWorkRow(row));
+  return filteredCutHistoryEntries.value.map((entry) => normalizeWorkRow(entry));
 }
 
 async function exportReportToExcel() {
@@ -7836,6 +8500,15 @@ async function exportReportToExcel() {
   clearReportMessage();
 
   try {
+    await refreshReportHistorySnapshot();
+    const range = getReportRange();
+    if (!range) {
+      throw new Error('Uzupełnij poprawny zakres dat i godzin dla raportu.');
+    }
+    if (range.start > range.end) {
+      throw new Error('Data i godzina "od" nie mogą być późniejsze niż "do".');
+    }
+
     const sourceRows = getReportSourceRows();
     const aggregatedRows = aggregateReportRows(sourceRows);
 
@@ -7845,21 +8518,32 @@ async function exportReportToExcel() {
 
     const XLSXStyle = await getStyledXlsx();
     const workbook = XLSXStyle.utils.book_new();
-    const worksheet = XLSXStyle.utils.json_to_sheet(aggregatedRows);
-    applyReportWorksheetStyles(worksheet, aggregatedRows);
+    const historySheetMatrix = buildHistoryReportSheetMatrix();
+    const worksheet = XLSXStyle.utils.aoa_to_sheet(historySheetMatrix);
+    applyHistoryReportWorksheetStyles(worksheet, historySheetMatrix);
     worksheet['!cols'] = [
-      { wch: 28 },
-      { wch: 28 },
+      { wch: 34 },
+      { wch: 34 },
+      { wch: 20 },
       { wch: 18 },
-      { wch: 14 },
     ];
     XLSXStyle.utils.book_append_sheet(workbook, worksheet, 'Raport');
-    const fileName =
-      reportSourceMode.value === 'saved'
-        ? `raport-odlozone-prace-${new Date().toISOString().slice(0, 10)}.xlsx`
-        : `raport-workmain-${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSXStyle.writeFile(workbook, fileName);
-    reportMessage.value = `Wyeksportowano raport do pliku ${fileName}.`;
+    const rangeSuffix =
+      reportStartDate.value && reportEndDate.value
+        ? `-${reportStartDate.value}_${reportStartTime.value.replace(':', '-')}-${reportEndDate.value}_${reportEndTime.value.replace(':', '-')}`
+        : `-${new Date().toISOString().slice(0, 10)}`;
+    const fileName = `raport-historia-wycinania${rangeSuffix}.xlsx`;
+    const contentBase64 = XLSXStyle.write(workbook, { bookType: 'xlsx', type: 'base64' });
+    const response = await fetch('/api/reports/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName, contentBase64 }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || 'Nie udało się zapisać raportu do folderu.');
+    }
+    reportMessage.value = `Zapisano raport do pliku ${payload.filePath || fileName}.`;
   } catch (error) {
     reportError.value = true;
     reportMessage.value = error.message || 'Nie udało się wygenerować raportu.';
@@ -7868,9 +8552,8 @@ async function exportReportToExcel() {
   }
 }
 
-async function exportCurrentWorkReport() {
-  reportSourceMode.value = 'current';
-  await exportReportToExcel();
+function exportCurrentWorkReport() {
+  activeTab.value = 'reports';
 }
 
 function cancelRecipeImportConflict() {
@@ -8729,6 +9412,7 @@ async function persistWorkRowsToDatabase(rowsToSave) {
   isWorkCorrectionSaving.value = true;
   workUploadMessage.value = '';
   workUploadError.value = false;
+  const persistedAt = new Date();
 
   try {
     const response = await fetch('/api/workmain/save', {
@@ -8742,6 +9426,7 @@ async function persistWorkRowsToDatabase(rowsToSave) {
       throw new Error(payload.error || 'Nie udało się zapisać zmian WorkMain.');
     }
 
+    rememberActiveRecipeSession(rowsToSave, persistedAt);
     clearWorkCorrectionState();
     await loadWorkMainRows({ preserveLocalDrafts: false });
     return payload;
@@ -8816,10 +9501,19 @@ async function confirmPostponeCurrentWork() {
 }
 
 onMounted(() => {
+  const now = new Date();
+  const twoMonthsBack = new Date();
+  twoMonthsBack.setMonth(twoMonthsBack.getMonth() - 2);
+  reportStartDate.value = formatDateInputValue(twoMonthsBack);
+  reportEndDate.value = formatDateInputValue(now);
+  persistCutHistoryEntries();
+  startCutHistoryCollectorHeartbeat();
   updateClock();
   timerId = window.setInterval(updateClock, 1000);
   window.addEventListener('keydown', handleGlobalEscape);
   window.addEventListener('pointerdown', handleWorkRecipeMenuOutsideClick);
+  window.addEventListener('storage', handleCutHistoryStorageSync);
+  window.addEventListener('pagehide', stopCutHistoryCollectorHeartbeat);
   loadSavedRecipes();
   loadConfig()
     .then(() => loadWorkMainRows())
@@ -8834,6 +9528,10 @@ onMounted(() => {
 watch(activeTab, (tab) => {
   if (tab !== 'recipes' && isSavedRecipePreviewOpen.value) {
     closeSavedRecipePreview();
+  }
+
+  if (tab === 'reports') {
+    refreshReportHistorySnapshot().catch(() => {});
   }
 
   if (tab === 'work') {
@@ -8855,8 +9553,11 @@ onUnmounted(() => {
   window.clearInterval(timerId);
   stopWorkMainAutoRefresh();
   stopMachineStatusAutoRefresh();
+  stopCutHistoryCollectorHeartbeat();
   mergeQuantityPulseTimers.forEach((pulseTimerId) => window.clearTimeout(pulseTimerId));
   mergeQuantityPulseTimers.clear();
+  window.removeEventListener('storage', handleCutHistoryStorageSync);
+  window.removeEventListener('pagehide', stopCutHistoryCollectorHeartbeat);
   if (recipePreviewMessageTimerId) {
     window.clearTimeout(recipePreviewMessageTimerId);
   }
