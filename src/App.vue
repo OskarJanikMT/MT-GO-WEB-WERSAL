@@ -2218,6 +2218,7 @@ const recipeColumns = [
   'grubosc',
   'szerokosc',
   'material',
+  'klasa',
   'idReceptury',
   'idSkladowej',
   'wybijak',
@@ -3495,7 +3496,7 @@ function getWorkRowPayload(row, index = 0) {
     TekstDoDruku: normalizePrintTextValue(row?.TekstDoDruku ?? ''),
     Grupa: normalizeGroupValue(row?.Grupa ?? row?.grupa ?? ''),
     Priorytet: normalizePriorityValue(row?.Priorytet ?? row?.priorytet ?? ''),
-    Klasa: normalizeWorkCorrectionValue(row?.Klasa ?? row?.klasa),
+    Klasa: getRecipeClassValue(row),
     Usr: String(row?.Usr ?? 'Default').trim() || 'Default',
     zliczonaIloscIn: sztuk,
     Stanowisko: stanowisko,
@@ -3507,6 +3508,15 @@ function normalizeDefaultClassValue(value, fallback = 2) {
   if (typeof value === 'string' && !value.trim()) return fallback;
   const normalizedValue = normalizeWorkCorrectionValue(value);
   return normalizedValue > 0 ? normalizedValue : fallback;
+}
+
+function getRecipeClassValue(row = {}, fallback = 2) {
+  for (const value of [row?.klasa, row?.Klasa]) {
+    if (value === null || value === undefined || String(value).trim() === '') continue;
+    const normalizedValue = normalizeWorkCorrectionValue(value);
+    if (normalizedValue === 1 || normalizedValue === 2) return normalizedValue;
+  }
+  return fallback;
 }
 
 function serializeWorkRows(rows) {
@@ -6700,7 +6710,7 @@ function createMergeDraftRow(productName, sourceRow = {}) {
   const rawQuantity = sourceRow['ilość'] ?? sourceRow.ilosc ?? 0;
   const numericQuantity = Number(String(rawQuantity).replace(',', '.'));
   const baseQuantity = Number.isFinite(numericQuantity) ? numericQuantity : 0;
-  const klasa = sourceRow.Klasa ?? sourceRow.klasa ?? 2;
+  const klasa = getRecipeClassValue(sourceRow);
   const stanowisko = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
   const dlugosc = sourceRow['Długość'] ?? sourceRow.dlugosc ?? '';
   const dzialanieWybijakow = resolveStoredPunchAction(
@@ -6738,7 +6748,7 @@ function createMergeDraftRow(productName, sourceRow = {}) {
 }
 
 function createRecipePreviewDraftRow(sourceRow = {}) {
-  const klasa = sourceRow.Klasa ?? sourceRow.klasa ?? 0;
+  const klasa = getRecipeClassValue(sourceRow);
   const stanowisko = normalizeStationValue(sourceRow.Stanowisko ?? sourceRow.stanowisko);
   const dlugosc = sourceRow.dlugosc ?? '';
   const dzialanieWybijakow = resolveStoredPunchAction(
@@ -7995,8 +8005,11 @@ async function loadSavedRecipes() {
               const stanowisko = normalizeStationValue(row?.Stanowisko ?? row?.stanowisko ?? '');
               const dlugosc = row?.dlugosc ?? row?.Dlugosc ?? row?.['Długość'] ?? '';
               const wybijak = row?.Wybijak ?? row?.wybijak ?? '';
+              const klasa = getRecipeClassValue(row);
               return {
                 ...row,
+                Klasa: klasa,
+                klasa,
                 Stanowisko: stanowisko || (row?.Stanowisko ?? row?.stanowisko ?? ''),
                 DzialanieWybijakow: resolveStoredPunchAction(row?.DzialanieWybijakow, stanowisko, dlugosc, wybijak),
               };
@@ -8878,6 +8891,13 @@ function updateRecipePreviewCell(localId, column, value) {
     return;
   }
 
+  if (column === 'klasa') {
+    const klasa = getRecipeClassValue({ klasa: normalizedValue }, getRecipeClassValue(row));
+    row.Klasa = klasa;
+    row.klasa = klasa;
+    return;
+  }
+
   row[column] = normalizedValue;
 }
 
@@ -9376,7 +9396,7 @@ async function loadRecipeToWorkMain() {
       szer: row.szerokosc || row.szer,
       Grupa: row.grupa || row.Grupa || '',
       Priorytet: row.priorytet || row.Priorytet || '',
-      Klasa: row.Klasa ?? row.klasa,
+      Klasa: getRecipeClassValue(row),
       Stanowisko: row.Stanowisko ?? row.stanowisko,
       Informacje: row.Informacje,
     }),
