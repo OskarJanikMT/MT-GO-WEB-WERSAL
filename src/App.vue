@@ -1179,6 +1179,14 @@
                     >
                       {{ isMergeProductEditMode(group.productName) ? 'Zakończ edycję' : 'Edytuj recepturę' }}
                     </button>
+                    <button
+                      v-if="canPersistMergeProduct(group.productName)"
+                      class="tool-btn compact"
+                      :disabled="isMergeProductPersisting(group.productName)"
+                      @click.stop="saveTemporaryMergeProduct(group.productName)"
+                    >
+                      {{ isMergeProductPersisting(group.productName) ? 'Zapisywanie...' : 'Zapisz produkt' }}
+                    </button>
                     <button class="recipe-group-remove" @click.stop="removeMergeProduct(group.productName)">Usuń</button>
                   </div>
 
@@ -1361,6 +1369,14 @@
                   </button>
                 </section>
               </TransitionGroup>
+              <div
+                v-if="mergeProductSaveMessage"
+                data-error-anchor="merge-product-save"
+                class="save-status merge-product-save-status"
+                :class="{ error: mergeProductSaveError }"
+              >
+                {{ mergeProductSaveMessage }}
+              </div>
               <transition name="merge-empty-fade">
                 <div v-if="!groupedRecipeRows.length" class="expanded-empty recipe-empty-state">
                   <span>Zaznacz produkty do scalenia receptury z panelu&nbsp;<strong>"Produkty do scalenia"</strong></span>
@@ -2404,6 +2420,9 @@ const mergeRecipeDrafts = ref({});
 const temporaryMergeProductNames = ref({});
 const mergeProductNameEditKey = ref('');
 const mergeProductNameDraft = ref('');
+const mergeProductSaveMessage = ref('');
+const mergeProductSaveError = ref(false);
+const mergeProductSavingMap = ref({});
 const mergeQuantityPulse = ref({});
 const mergePreviewProductName = ref('');
 const isFavoriteElementsModalOpen = ref(false);
@@ -2622,6 +2641,7 @@ watch(animationsEnabled, () => {
 watchErrorAnchor(() => (configSaveError.value ? configSaveMessage.value : ''), 'config-save');
 watchErrorAnchor(() => (productFileActionError.value ? productFileActionMessage.value : ''), 'product-file-action');
 watchErrorAnchor(() => (saveError.value ? saveMessage.value : ''), 'product-save');
+watchErrorAnchor(() => (mergeProductSaveError.value ? mergeProductSaveMessage.value : ''), 'merge-product-save');
 watchErrorAnchor(() => saveRecipeDialog.value.error, 'save-recipe-dialog');
 watchErrorAnchor(() => (recipeCatalogActionError.value ? recipeCatalogActionMessage.value : ''), 'recipe-catalog-action');
 watchErrorAnchor(() => (reportError.value ? reportMessage.value : ''), 'report-status');
@@ -5960,6 +5980,10 @@ function canRenameMergeProduct(productName) {
   return isGeneratedTemporaryMergeProduct(productName);
 }
 
+function canPersistMergeProduct(productName) {
+  return isGeneratedTemporaryMergeProduct(productName);
+}
+
 function getMergeProductDisplayName(productName) {
   if (productName === TEMP_PRODUCT_KEY) {
     return temporaryProductName.value.trim() || 'Produkt dodatkowy';
@@ -6002,6 +6026,162 @@ function saveMergeProductName(productName) {
     [productName]: nextName,
   };
   cancelMergeProductNameEdit();
+}
+
+function clearMergeProductSaveMessage() {
+  mergeProductSaveMessage.value = '';
+  mergeProductSaveError.value = false;
+}
+
+function setMergeProductSaveMessage(message, isError = false) {
+  mergeProductSaveMessage.value = message;
+  mergeProductSaveError.value = isError;
+}
+
+function isMergeProductPersisting(productName) {
+  return Boolean(mergeProductSavingMap.value[productName]);
+}
+
+function getPersistedMergeProductRows(productName) {
+  return (mergeRecipeDrafts.value[productName] ?? []).map((row) => ({
+    Nazwa: String(row?.nazwaSkladowej ?? '').trim(),
+    Kod: normalizePrintTextValue(row?.TekstDoDruku ?? ''),
+    'Długość': String(row?.dlugosc ?? '').trim(),
+    'Grubość': String(row?.grubosc ?? '').trim(),
+    'Szerokość': String(row?.szerokosc ?? '').trim(),
+    'Materiał': String(row?.material ?? '').trim(),
+    'ilość': String(row?._baseIlosc ?? row?.ilosc ?? '').trim(),
+    Wybijak: String(row?.wybijak ?? '').trim(),
+    Klasa: String(row?.Klasa ?? '').trim(),
+    Stanowisko: String(row?.Stanowisko ?? '').trim(),
+  }));
+}
+
+function replaceTemporaryMergeProductWithSavedFile(productName, savedFileName) {
+  const sourceRows = mergeRecipeDrafts.value[productName] ?? [];
+  const nextRows = sourceRows.map((row) => ({
+    ...createMergeDraftRow(savedFileName, {
+      Nazwa: row?.nazwaSkladowej ?? '',
+      Kod: row?.TekstDoDruku ?? '',
+      'Długość': row?.dlugosc ?? '',
+      'Grubość': row?.grubosc ?? '',
+      'Szerokość': row?.szerokosc ?? '',
+      'Materiał': row?.material ?? '',
+      'ilość': row?._baseIlosc ?? row?.ilosc ?? '',
+      Wybijak: row?.wybijak ?? '',
+      Klasa: row?.Klasa ?? '',
+      Stanowisko: row?.Stanowisko ?? '',
+    }),
+    grupa: row?.grupa ?? '',
+    priorytet: row?.priorytet ?? '',
+    Informacje: row?.Informacje ?? 'Kopia tymczasowa',
+    iloscWykonana: row?.iloscWykonana ?? 0,
+  }));
+
+  const nextDrafts = { ...mergeRecipeDrafts.value };
+  delete nextDrafts[productName];
+  nextDrafts[savedFileName] = nextRows;
+  mergeRecipeDrafts.value = nextDrafts;
+
+  selectedProducts.value = selectedProducts.value.map((name) => (name === productName ? savedFileName : name));
+
+  const nextQuantities = { ...mergeProductQuantities.value };
+  nextQuantities[savedFileName] = nextQuantities[productName] ?? 1;
+  delete nextQuantities[productName];
+  mergeProductQuantities.value = nextQuantities;
+
+  const nextModes = { ...mergeEditModes.value };
+  nextModes[savedFileName] = nextModes[productName] ?? false;
+  delete nextModes[productName];
+  mergeEditModes.value = nextModes;
+
+  const nextCollapsed = { ...collapsedRecipeGroups.value };
+  nextCollapsed[savedFileName] = nextCollapsed[productName] ?? false;
+  delete nextCollapsed[productName];
+  collapsedRecipeGroups.value = nextCollapsed;
+
+  const nextSavingMap = { ...mergeProductSavingMap.value };
+  delete nextSavingMap[productName];
+  mergeProductSavingMap.value = nextSavingMap;
+
+  const nextNames = { ...temporaryMergeProductNames.value };
+  delete nextNames[productName];
+  temporaryMergeProductNames.value = nextNames;
+
+  if (mergeProductNameEditKey.value === productName) {
+    cancelMergeProductNameEdit();
+  }
+}
+
+async function saveTemporaryMergeProduct(productName) {
+  if (!canPersistMergeProduct(productName) || isMergeProductPersisting(productName)) return;
+
+  const productLabel = getMergeProductDisplayName(productName).trim();
+  const rows = mergeRecipeDrafts.value[productName] ?? [];
+
+  if (!productLabel) {
+    setMergeProductSaveMessage('Nadaj nazwę produktu przed zapisem.', true);
+    return;
+  }
+
+  if (!rows.length) {
+    setMergeProductSaveMessage('Nie można zapisać pustego produktu bez elementów.', true);
+    return;
+  }
+
+  // During editing `ilosc` contains the displayed/multiplied value while
+  // `_baseIlosc` contains the value that will be written to the product file.
+  // Validate the same quantity that is persisted, otherwise a changed amount
+  // can incorrectly be reported as missing.
+  const rowsForValidation = rows.map((row) => ({
+    ...row,
+    ilosc: row?._baseIlosc ?? row?.ilosc,
+  }));
+
+  const validationMessage = getRecipeRowsValidationMessage(rowsForValidation, 'Nie można zapisać produktu.');
+  if (validationMessage) {
+    setMergeProductSaveMessage(validationMessage, true);
+    return;
+  }
+
+  const wybijakValidationError = getRecipePreviewWybijakValidationError(rowsForValidation);
+  if (wybijakValidationError) {
+    setMergeProductSaveMessage(wybijakValidationError, true);
+    return;
+  }
+
+  clearMergeProductSaveMessage();
+  mergeProductSavingMap.value = {
+    ...mergeProductSavingMap.value,
+    [productName]: true,
+  };
+
+  try {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      productImportExportColumns,
+      ...getPersistedMergeProductRows(productName).map((row) => productImportExportColumns.map((column) => row[column] ?? '')),
+    ]);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Produkty');
+    const contentBase64 = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' });
+    const normalizedFileName = `${productLabel.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Nowy produkt'}.xlsx`;
+
+    const result = await postProductFileAction('/api/products/import', {
+      fileName: normalizedFileName,
+      contentBase64,
+    });
+    const savedFileName = result.fileName || normalizedFileName;
+
+    await reloadProductsAfterFileAction(savedFileName);
+    replaceTemporaryMergeProductWithSavedFile(productName, savedFileName);
+    setMergeProductSaveMessage(`Zapisano produkt ${formatProductDisplayName(savedFileName)}.`, false);
+  } catch (error) {
+    setMergeProductSaveMessage(error.message || 'Nie udało się zapisać produktu.', true);
+  } finally {
+    const nextSavingMap = { ...mergeProductSavingMap.value };
+    delete nextSavingMap[productName];
+    mergeProductSavingMap.value = nextSavingMap;
+  }
 }
 
 function formatTemporaryRowOption(row) {
