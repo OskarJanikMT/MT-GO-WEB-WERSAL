@@ -3534,7 +3534,7 @@ function getRecipeClassValue(row = {}, fallback = 2) {
   for (const value of [row?.klasa, row?.Klasa]) {
     if (value === null || value === undefined || String(value).trim() === '') continue;
     const normalizedValue = normalizeWorkCorrectionValue(value);
-    if (normalizedValue === 1 || normalizedValue === 2) return normalizedValue;
+    if (normalizedValue >= 1 && normalizedValue <= 3) return normalizedValue;
   }
   return fallback;
 }
@@ -9467,6 +9467,13 @@ function updateMergeRecipeCell(productName, localId, column, value) {
       row.DzialanieWybijakow = getResolvedPunchAction(row.DzialanieWybijakow, stanowisko, normalizedValue);
       syncMergeWybijakValue(getWybijakValueForStation(stanowisko, normalizedValue, row.DzialanieWybijakow));
     }
+    return;
+  }
+
+  if (column === 'klasa') {
+    const klasa = getRecipeClassValue({ klasa: normalizedValue }, getRecipeClassValue(row));
+    row.Klasa = klasa;
+    row.klasa = klasa;
     return;
   }
 
