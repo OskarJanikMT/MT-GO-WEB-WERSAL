@@ -619,10 +619,97 @@ function parseNullableInteger(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function buildWorkMainUploadSql(rows) {
-  const valuesSql = rows
+function getWorkMainSectionParts(value) {
+  const match = String(value ?? '').trim().match(/(\d+)\D+(\d+)/);
+  if (!match) return null;
+
+  return [Number.parseInt(match[1], 10), Number.parseInt(match[2], 10)];
+}
+
+function compareWorkMainSections(left, right) {
+  const leftValue = String(left ?? '').trim();
+  const rightValue = String(right ?? '').trim();
+  const leftParts = getWorkMainSectionParts(leftValue);
+  const rightParts = getWorkMainSectionParts(rightValue);
+
+  if (leftParts && rightParts) {
+    return leftParts[0] - rightParts[0] || leftParts[1] - rightParts[1];
+  }
+  if (leftParts) return -1;
+  if (rightParts) return 1;
+  return leftValue.localeCompare(rightValue, 'pl', { numeric: true, sensitivity: 'base' });
+}
+
+function getWorkMainCompleteKey(entry) {
+  const row = entry?.row ?? entry ?? {};
+  const sourceProductName = String(row.SourceProductName ?? '').trim();
+  const elementName = String(row.Nazwa ?? '').trim();
+  const completeName = sourceProductName || elementName;
+  return completeName ? completeName.toLocaleLowerCase('pl-PL') : `__row-${entry?.index ?? ''}`;
+}
+
+function takeNextWorkMainRow(bucket, previousCompleteKey) {
+  if (!bucket.length) return null;
+  const differentCompleteIndex = bucket.findIndex((entry) => getWorkMainCompleteKey(entry) !== previousCompleteKey);
+  const nextIndex = differentCompleteIndex === -1 ? 0 : differentCompleteIndex;
+  return bucket.splice(nextIndex, 1)[0];
+}
+
+function orderWorkMainRowsForDatabase(rows) {
+  const rowsBySection = new Map();
+
+  rows.forEach((row, index) => {
+    const section = String(row?.Przekroj ?? '').trim();
+    if (!rowsBySection.has(section)) rowsBySection.set(section, []);
+    rowsBySection.get(section).push({ row, index });
+  });
+
+  const orderedRows = [];
+  [...rowsBySection.entries()]
+    .sort(([leftSection], [rightSection]) => compareWorkMainSections(rightSection, leftSection))
+    .forEach(([, sectionRows]) => {
+      const sortedByLength = sectionRows.sort(
+        (left, right) =>
+          (parseNullableInteger(right.row?.Dlugosc) ?? 0) - (parseNullableInteger(left.row?.Dlugosc) ?? 0) ||
+          left.index - right.index,
+      );
+      const bucketSize = Math.ceil(sortedByLength.length / 3);
+      const lengthBuckets = [
+        sortedByLength.slice(0, bucketSize),
+        sortedByLength.slice(bucketSize, bucketSize * 2),
+        sortedByLength.slice(bucketSize * 2),
+      ];
+      let previousCompleteKey = '';
+
+      for (let bucketIndex = 0; bucketIndex < bucketSize; bucketIndex += 1) {
+        lengthBuckets.forEach((bucket) => {
+          const nextEntry = takeNextWorkMainRow(bucket, previousCompleteKey);
+          if (!nextEntry) return;
+          orderedRows.push(nextEntry.row);
+          previousCompleteKey = getWorkMainCompleteKey(nextEntry);
+        });
+      }
+    });
+
+  return orderedRows;
+}
+
+function getWorkMainDatabaseId(index, reservedIds = []) {
+  const reservedIdSet = new Set(reservedIds.map((value) => parseNullableInteger(value)).filter((value) => value !== null));
+  let nextId = 1;
+  for (let assignedIndex = 0; assignedIndex <= index; assignedIndex += 1) {
+    while (reservedIdSet.has(nextId)) nextId += 1;
+    if (assignedIndex === index) return nextId;
+    nextId += 1;
+  }
+  return index + 1;
+}
+
+function buildWorkMainUploadSql(rows, reservedIds = []) {
+  const orderedRows = orderWorkMainRowsForDatabase(rows);
+  const valuesSql = orderedRows
     .map((row, index) => `(
-${index + 1},
+${getWorkMainDatabaseId(index, reservedIds)},
 ${toSqlLiteral(normalizeMaterialValue(row.Material))},
 ${toSqlLiteral(row.Przekroj)},
 ${toSqlNumber(row.Grubosc)},
@@ -853,10 +940,11 @@ BEGIN CATCH
 END CATCH;`;
 }
 
-function buildWorkMainSaveSql(rows) {
-  const valuesSql = rows
+function buildWorkMainSaveSql(rows, reservedIds = []) {
+  const orderedRows = orderWorkMainRowsForDatabase(rows);
+  const valuesSql = orderedRows
     .map((row, index) => `(
-${toSqlNumber(row.id, index + 1)},
+${getWorkMainDatabaseId(index, reservedIds)},
 ${toSqlLiteral(normalizeMaterialValue(row.Material))},
 ${toSqlLiteral(row.Przekroj)},
 ${toSqlNumber(row.Grubosc)},
@@ -1837,7 +1925,8 @@ function productSavePlugin() {
             return;
           }
 
-          const sqlText = buildWorkMainUploadSql(rows);
+          const reservedIds = Array.isArray(body.reservedIds) ? body.reservedIds : [];
+          const sqlText = buildWorkMainUploadSql(rows, reservedIds);
           await executeSqlFile(sqlText);
           sendJson(res, 200, { ok: true, insertedRows: rows.length });
         } catch (error) {
@@ -1878,7 +1967,8 @@ function productSavePlugin() {
           const body = await readJsonBody(req);
           const rows = Array.isArray(body.rows) ? body.rows : [];
 
-          const sqlText = buildWorkMainSaveSql(rows);
+          const reservedIds = Array.isArray(body.reservedIds) ? body.reservedIds : [];
+          const sqlText = buildWorkMainSaveSql(rows, reservedIds);
           await executeSqlFile(sqlText);
           sendJson(res, 200, { ok: true, updatedRows: rows.length });
         } catch (error) {

@@ -9625,7 +9625,12 @@ async function persistWorkRowsToDatabase(rowsToSave) {
     const response = await fetch('/api/workmain/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: rowsToSave }),
+      body: JSON.stringify({
+        rows: rowsToSave,
+        reservedIds: workRows.value
+          .filter((row) => row.__disabled && !row.__isLocalDraft)
+          .map((row, index) => getWorkRowPayload(row, index).id),
+      }),
     });
 
     const payload = await response.json().catch(() => ({}));
